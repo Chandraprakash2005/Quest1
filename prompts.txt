@@ -1,0 +1,88 @@
+# prompts.txt — AI Usage Documentation
+# 
+# This file contains the master prompt that was used to orchestrate the
+# generation of this entire repository. It is included verbatim to satisfy
+# the evaluation requirement regarding AI usage documentation.
+#
+# ==========================================================================
+
+# SYSTEM ROLE & CONTEXT
+Act as a Senior Principal AI/Video Processing Engineer. Your objective is to build a fully automated, production-ready Python solution that identifies the exact video frame where a specific target dialogue appears on-screen. 
+
+You must generate a complete GitHub-ready repository containing all source code, dependency configurations, and markdown documentation based strictly on the architectural blueprint provided below.
+
+# PROBLEM SPECIFICATIONS
+- **Target URL:** `https://ok.ru/video/248244667877`
+- **Target Dialogue:** "My mind rebels at stagnation"
+- **Required Outputs:** A saved PNG image of the exact frame, and a JSON manifest containing the timestamp (HH:MM:SS.sss), frame number, extracted text, and confidence score.
+
+# PIPELINE ARCHITECTURE (The Multi-Modal Funnel)
+You must implement a multi-modal coarse-to-fine search pipeline. **DO NOT use any Vision-Language Models (VLMs) or LLMs for image processing.** Rely strictly on Audio ASR and visual OCR. 
+
+Implement the following phases in `src/find_dialogue.py`:
+
+1. **Phase 0: Ingestion & Probing**
+   - Use `yt-dlp` to download the video locally. Ensure you handle `ok.ru` compatibility.
+   - Use `ffmpeg` / `ffprobe` to extract video metadata: `fps`, `duration`, `resolution`.
+   - Extract the audio track as a 16 kHz mono WAV file.
+
+2. **Phase 1: ASR Accelerator (The Fast Pass)**
+   - Run `faster-whisper` on the extracted audio.
+   - Perform a fuzzy string search (using `rapidfuzz`) on the transcript for the target dialogue. 
+   - *If found:* Set a narrowed OCR search window of `[t_spoke - 2.0s, t_spoke + 2.0s]`.
+   - *If NOT found (Handling Visual-Only Text):* Set the search window to the full video duration `[0, duration]`.
+
+3. **Phase 2: Coarse Sampled OCR**
+   - Using `opencv`, sample the video at **1 frame per second (1 fps)** strictly within the search window defined in Phase 1.
+   - Use `PaddleOCR` (or `EasyOCR` if Paddle is unavailable in your environment) to extract text from these sampled frames.
+   - Use `rapidfuzz` (`token_set_ratio`) to compare the extracted text against the target string.
+   - **Confidence Scoring:** Score >= 85 is a confirmed match (OK). Score between 70 and 84 is LOW_CONFIDENCE. Score < 70 is NOT_FOUND.
+
+4. **Phase 3: Coarse-to-Fine Temporal Refinement**
+   - Once a coarse match >= 70 is found at timestamp t_max, execute a multi-pass temporal binary search to find the *exact first frame*.
+   - **Pass A:** Step backwards/forwards at 0.1s granularity within `[t_max - 1.0s, t_max + 1.0s]`.
+   - **Pass B:** Step at 0.01s granularity around the new best match.
+   - **Pass C:** Step frame-by-frame (`1/fps`) to lock in the exact first appearance frame.
+
+5. **Phase 4: Output Generation**
+   - Calculate exact frame index: `frame_num = int(timestamp * fps)`.
+   - Save the exact frame as `output_frame.png` in full resolution.
+   - Generate `manifest.json` containing the timestamp, frame number, extracted text, and confidence status.
+
+# REQUIRED DELIVERABLES & FILE STRUCTURE
+You must generate the following file tree and populate each file with complete, production-ready content. Do not use placeholders; write the actual code and documentation.
+
+/
+├── src/
+│   └── find_dialogue.py
+├── requirements.txt
+├── README.md
+├── APPROACH.md
+└── prompts.txt
+
+### File 1: `src/find_dialogue.py`
+Write the complete Python script. Use clean, modular, object-oriented design (e.g., `class DialogueDetector`). Implement robust logging (using the `logging` module), error handling (try/except blocks for download/processing failures), and type hinting. Include a `__main__` block that accepts CLI arguments for the URL and target text, defaulting to the problem specifications.
+
+### File 2: `requirements.txt`
+Include all necessary dependencies with standard versions (e.g., `yt-dlp`, `opencv-python`, `faster-whisper`, `paddleocr`, `rapidfuzz`, `ffmpeg-python`). Ensure compatibility for a modern Python environment.
+
+### File 3: `APPROACH.md`
+Write a comprehensive engineering design document. You must answer the following evaluation criteria explicitly:
+1. **How the solution determines where to look:** Explain the ASR audio-anchoring hypothesis and how it reduces the search space from potentially hours to a 4-second window. Explain the 1fps fallback for silent text.
+2. **How it determines the relevant frame:** Explain the Coarse-to-Fine temporal binary search (1s -> 0.1s -> frame-level).
+3. **How it extracts the text:** Explain the use of PaddleOCR/EasyOCR and grayscale image preprocessing.
+4. **How ambiguous results are handled:** Explain the `rapidfuzz` `token_set_ratio` logic, and the transition states between OK (>= 85), LOW_CONFIDENCE (70-84), and NOT_FOUND (< 70). 
+5. Explicitly state that Vision-Language Models (VLMs) were deliberately avoided to optimize for speed, cost, and local compute capability.
+
+### File 4: `prompts.txt`
+To fulfill the specific evaluation requirement regarding AI usage documentation, create this file and copy this *entire* system prompt into it verbatim, explaining that this was the master prompt used to orchestrate the generation of the repository.
+
+### File 5: `README.md`
+Provide clear, step-by-step instructions on how to set up and run the project **using `uv` as the package manager and environment resolver**. 
+- Include instructions to install `ffmpeg` at the system level (as it is required by `yt-dlp` and `whisper`).
+- Include the exact `uv` commands to create the environment and install dependencies (e.g., `uv venv`, `uv pip install -r requirements.txt`).
+- Provide the command to execute `src/find_dialogue.py`.
+
+Now, execute the generation of all 5 files sequentially.
+
+

@@ -1,1 +1,32 @@
-.env
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+dist/
+build/
+.eggs/
+
+# Virtual environment
+.venv/
+venv/
+env/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Pipeline artifacts (generated at runtime)
+video.mp4
+audio.wav
+output_frame.png
+manifest.json
+
+# PaddleOCR model cache
+~/.paddleocr/

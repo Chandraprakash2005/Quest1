@@ -1,0 +1,19 @@
+# Core video & audio processing
+yt-dlp>=2024.1.0
+ffmpeg-python>=0.2.0
+opencv-python>=4.9.0
+
+# ASR (Speech-to-Text)
+faster-whisper>=1.0.0
+openai-whisper>=20231117
+
+# OCR engines (PaddleOCR preferred; EasyOCR as fallback)
+paddlepaddle>=2.6.0
+paddleocr>=2.7.0
+easyocr>=1.7.0
+
+# Fuzzy string matching
+rapidfuzz>=3.6.0
+
+# Utilities
+numpy>=1.26.0
