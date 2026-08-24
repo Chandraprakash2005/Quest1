@@ -86,6 +86,16 @@ class SearchWindow:
 # ---------------------------------------------------------------------------
 # OCR Backend abstraction
 # ---------------------------------------------------------------------------
+# Global caches for heavy models to drastically improve server speed
+_EASYOCR_READER = None
+_WHISPER_MODEL = None
+
+_TRANSCRIPT_CACHE = {
+    "url": "",
+    "timestamp": 0,
+    "words": []
+}
+
 class OCREngine:
     """Wraps PaddleOCR with EasyOCR fallback."""
 
@@ -95,12 +105,16 @@ class OCREngine:
         self._init_engine()
 
     def _init_engine(self) -> None:
+        global _EASYOCR_READER
         # PaddleOCR causes noisy logs and crashes on Windows CPU, skipping straight to EasyOCR
         try:
             import easyocr
             # Set env var to handle Unicode progress bar on Windows console
             os.environ["PYTHONIOENCODING"] = "utf-8"
-            self._engine = easyocr.Reader(["en"], gpu=False, verbose=False)
+            if _EASYOCR_READER is None:
+                log.info("Loading EasyOCR into memory (this only happens once)...")
+                _EASYOCR_READER = easyocr.Reader(["en"], gpu=True, verbose=False)
+            self._engine = _EASYOCR_READER
             self._backend = "easyocr"
             log.info("OCR backend: EasyOCR")
             return
@@ -397,58 +411,83 @@ class DialogueDetector:
         """Run ASR on audio and fuzzy-match the target dialogue."""
         log.info("=== Phase 1: ASR Accelerator ===")
 
-        try:
-            from faster_whisper import WhisperModel
-            model = WhisperModel("base", device="cpu", compute_type="int8")
-            segments, _ = model.transcribe(self.meta.audio_path, language="en", word_timestamps=True)
-            segments_list = list(segments)
-        except Exception as exc:
-            log.warning("faster-whisper failed (%s), trying openai-whisper...", exc)
+        global _TRANSCRIPT_CACHE
+        if _TRANSCRIPT_CACHE.get("url") != self.url or (time.time() - _TRANSCRIPT_CACHE.get("timestamp", 0)) > 600:
+            log.info("Transcript cache empty or expired. Running Whisper over entire audio...")
             try:
-                import whisper
-                model = whisper.load_model("base")
-                result = model.transcribe(self.meta.audio_path, language="en", word_timestamps=True)
-                segments_list = result.get("segments", [])
-            except Exception as exc2:
-                log.warning("Whisper also failed (%s). Falling back to full scan.", exc2)
-                return SearchWindow(0.0, self.meta.duration)
+                global _WHISPER_MODEL
+                from faster_whisper import WhisperModel
+                if _WHISPER_MODEL is None:
+                    log.info("Loading faster-whisper into memory (this only happens once)...")
+                    try:
+                        # Dynamically inject pip-installed NVIDIA CUDA DLLs into PATH
+                        import os, sys
+                        from pathlib import Path
+                        venv_dir = Path(sys.executable).parent.parent
+                        for pkg in ["cublas", "cudnn", "cuda_nvrtc", "cuda_runtime"]:
+                            bin_path = venv_dir / "Lib" / "site-packages" / "nvidia" / pkg / "bin"
+                            if bin_path.exists():
+                                os.environ["PATH"] = str(bin_path) + os.pathsep + os.environ["PATH"]
+                                if hasattr(os, "add_dll_directory"):
+                                    os.add_dll_directory(str(bin_path))
+
+                        from faster_whisper import WhisperModel
+                        _WHISPER_MODEL = WhisperModel("tiny.en", device="cuda", compute_type="float16")
+                        log.info("faster-whisper (tiny.en) successfully loaded on CUDA GPU.")
+                    except Exception as e:
+                        log.warning("GPU load failed. Falling back to CPU: %s", str(e)[:40])
+                        from faster_whisper import WhisperModel
+                        _WHISPER_MODEL = WhisperModel("tiny.en", device="cpu", compute_type="int8")
+                model = _WHISPER_MODEL
+                segments_iter, _ = model.transcribe(self.meta.audio_path, language="en", word_timestamps=True)
+            except Exception as exc:
+                log.warning("faster-whisper failed (%s), trying openai-whisper...", exc)
+                try:
+                    import whisper
+                    model = whisper.load_model("tiny.en")
+                    result = model.transcribe(self.meta.audio_path, language="en", word_timestamps=True)
+                    segments_iter = result.get("segments", [])
+                except Exception as exc2:
+                    log.warning("Whisper also failed (%s). Falling back to full scan.", exc2)
+                    return SearchWindow(0.0, self.meta.duration)
+
+            all_words = []
+            for seg in segments_iter:
+                words = seg.words if hasattr(seg, "words") else seg.get("words", [])
+                for w in words:
+                    w_text = w.word if hasattr(w, "word") else w.get("word", "")
+                    w_start = w.start if hasattr(w, "start") else w.get("start", 0)
+                    w_end = w.end if hasattr(w, "end") else w.get("end", 0)
+                    all_words.append({"word": w_text, "start": w_start, "end": w_end})
+            
+            _TRANSCRIPT_CACHE = {
+                "url": self.url,
+                "timestamp": time.time(),
+                "words": all_words
+            }
+        else:
+            log.info("Using cached ASR transcript. Skipping Whisper inference!")
 
         best_score = 0.0
         best_time = 0.0
         best_text = ""
 
-        for seg in segments_list:
-            text = seg.text if hasattr(seg, "text") else seg.get("text", "")
-            
-            # Fuzzy match the segment as a whole first
-            seg_score = fuzz.partial_ratio(self.target.lower(), text.lower())
-            
-            words = seg.words if hasattr(seg, "words") else seg.get("words", [])
-            
-            if words and seg_score > 50:
-                # Sliding window of lengths 1 to 8 words to find the exact spoken phrase
-                for i in range(len(words)):
-                    for j in range(i + 1, min(i + 8, len(words) + 1)):
-                        window = words[i:j]
-                        w_text = " ".join([w.word if hasattr(w, "word") else w.get("word", "") for w in window]).strip()
-                        w_score = fuzz.ratio(self.target.lower(), w_text.lower())
-                        
-                        if w_score > best_score:
-                            best_score = w_score
-                            best_text = w_text
-                            
-                            w_start = window[0].start if hasattr(window[0], "start") else window[0].get("start", 0)
-                            w_end = window[-1].end if hasattr(window[-1], "end") else window[-1].get("end", 0)
-                            best_time = (w_start + w_end) / 2.0
-            else:
-                # Fallback if no word timestamps
-                score = fuzz.token_set_ratio(self.target.lower(), text.lower())
-                if score > best_score:
-                    best_score = score
-                    best_text = text.strip()
-                    start = seg.start if hasattr(seg, "start") else seg.get("start", 0)
-                    end = seg.end if hasattr(seg, "end") else seg.get("end", 0)
-                    best_time = (start + end) / 2.0
+        # Sliding window over the entire flat transcript to avoid segment boundary cutoffs
+        words = _TRANSCRIPT_CACHE["words"]
+        for i in range(len(words)):
+            for j in range(i + 1, min(i + 8, len(words) + 1)):
+                window = words[i:j]
+                w_text = " ".join([w["word"] for w in window]).strip()
+                w_score = fuzz.ratio(self.target.lower(), w_text.lower())
+                
+                if w_score > best_score:
+                    best_score = w_score
+                    best_text = w_text
+                    best_time = (window[0]["start"] + window[-1]["end"]) / 2.0
+                    
+            if best_score >= 85:
+                log.info("Target spoken text found in cache! Halting search.")
+                break
 
         if best_score > 0:
             self.asr_best = MatchResult(
@@ -666,15 +705,19 @@ class DialogueDetector:
 
         self.phase0_ingest()
         window = self.phase1_asr()
+
+        if self.asr_best is not None and self.asr_best.confidence >= 60:
+            log.info("ASR successfully matched target dialogue. Short-circuiting OCR for maximum speed.")
+            self.best = self.asr_best
+            self.phase4_output()
+            elapsed = time.time() - t0
+            log.info("Pipeline completed in %.1fs", elapsed)
+            return self.best
+
         t_coarse = self.phase2_coarse_ocr(window)
 
         if t_coarse is not None:
             self.phase3_refine(t_coarse)
-
-        # Fallback to ASR if OCR failed to find a confident match
-        if self.best.score < CONFIDENCE_LOW and self.asr_best is not None and self.asr_best.confidence >= 60:
-            log.warning("OCR failed to find text on-screen. Falling back to ASR match.")
-            self.best = self.asr_best
 
         self.phase4_output()
 

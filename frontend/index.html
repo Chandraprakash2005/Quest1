@@ -1,0 +1,70 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Video Dialogue Detector</title>
+    <link rel="stylesheet" href="style.css">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+</head>
+<body>
+    <div class="background-blobs">
+        <div class="blob blob-1"></div>
+        <div class="blob blob-2"></div>
+    </div>
+
+    <main class="container">
+        <header>
+            <h1>AI Dialogue <span>Detector</span></h1>
+            <p>Pinpoint exact video frames using multi-modal ASR & OCR</p>
+        </header>
+
+        <section class="card url-section">
+            <h2>1. Load Video</h2>
+            <div class="input-group">
+                <input type="text" id="video-url" placeholder="Paste YouTube or OK.ru URL here..." />
+                <button id="load-btn" class="primary-btn">Download & Cache</button>
+            </div>
+            <div id="load-status" class="status-msg"></div>
+        </section>
+
+        <section class="card search-section" id="search-section">
+            <h2>2. Search Target Phrase</h2>
+            <div class="input-group">
+                <input type="text" id="search-text" placeholder="e.g. My mind rebels at stagnation" />
+                <button id="search-btn" class="primary-btn">Run AI Pipeline</button>
+            </div>
+            <div id="search-status" class="status-msg"></div>
+        </section>
+
+        <section class="card result-section hidden" id="result-section">
+            <h2>Extraction Result</h2>
+            <div class="result-content">
+                <div class="result-details">
+                    <div class="metric">
+                        <span class="label">Status</span>
+                        <span class="value highlight" id="res-status">FOUND</span>
+                    </div>
+                    <div class="metric">
+                        <span class="label">Timestamp</span>
+                        <span class="value" id="res-time">00:00:21.610</span>
+                    </div>
+                    <div class="metric">
+                        <span class="label">Confidence</span>
+                        <span class="value" id="res-conf">100%</span>
+                    </div>
+                    <div class="metric full-width">
+                        <span class="label">Matched Text</span>
+                        <span class="value text-quote" id="res-text">"breathing in your dust"</span>
+                    </div>
+                </div>
+                <div class="result-image">
+                    <img id="res-img" src="" alt="Extracted Frame" />
+                </div>
+            </div>
+        </section>
+    </main>
+
+    <script src="script.js"></script>
+</body>
+</html>

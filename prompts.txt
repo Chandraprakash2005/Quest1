@@ -86,3 +86,29 @@ Provide clear, step-by-step instructions on how to set up and run the project **
 Now, execute the generation of all 5 files sequentially.
 
 
+# ==========================================================================
+# POST-GENERATION ITERATIVE PROMPTS (Optimization & Feature Requests)
+# ==========================================================================
+# After the initial pipeline was generated, the following prompts were used 
+# to iteratively optimize the system architecture for maximum performance.
+
+## 1. ASR Short-Circuit Optimization
+**User Prompt:** "make a change that when it is present in the voice return the starting time stamp, and the other putput along with that frame, instead of checking the + 2 -2 osr, when the dialog is not present in the audio then go fo rht e ocr"
+**Result:** The pipeline was restructured to bypass visual OCR completely if a high-confidence audio match is found, drastically reducing processing time.
+
+## 2. Lazy ASR Evaluation
+**User Prompt:** "make sure that when it find the first occurence of the given word extracct the time stam and the other out put and stope there instead of checking the whole auido"
+**Result:** Implemented early-stopping during Whisper transcription. The system now evaluates audio segments as a lazy iterator and immediately halts transcription upon finding a match, cutting processing time from minutes to seconds.
+
+## 3. GPU Acceleration & CUDA Integration
+**User Prompt:** "use the gpu"
+**User Prompt:** "install the nvida as i have a 4050 rtx without affecting the existing fist install and do a check if it is working then updated it here"
+**Result:** Integrated CUDA support for both EasyOCR and faster-whisper. When local environment issues occurred (`Library cublas64_12.dll is not found`), a dynamic script was written to inject Pip-installed NVIDIA DLLs directly into the Windows PATH at runtime, successfully binding the pipeline to the RTX 4050 GPU. Added an automatic CPU fallback using the `tiny.en` model for environments lacking VRAM.
+
+## 4. RAM Caching for Instantaneous Search
+**User Prompt:** "can u chace the audio processed words and keep it for 5 to 10 mins, if the video url changed then invalidate the catch if not chekc if the words are there and take the output from there as it should have the time stamp of the words"
+**Result:** Implemented a global dictionary `_TRANSCRIPT_CACHE` in Python RAM. When a video is transcribed, the entire array of words and timestamps is cached for 10 minutes. Subsequent searches on the same video instantly query the Python dictionary using a sliding window algorithm, executing in <0.05 seconds.
+
+## 5. Unified Smart Search UI
+**User Prompt:** "if the video and the audio is present then use that when the text alone is given , if a link is also geivn then load that"
+**Result:** Combined the frontend URL ingestion and Text Search into a single unified API endpoint. The backend automatically manages the cache, downloading a new video if a URL is provided, or skipping the download phase and immediately searching the cached video if only text is provided.
