@@ -158,6 +158,8 @@ class DialogueDetector:
 
     def __init__(self, url: str, target_dialogue: str, work_dir: str = "work", local_video: str = "", mode: str = "asr_only") -> None:
         import re
+        import uuid
+        self.session_id = uuid.uuid4().hex
         self.url = url
         self.target = re.sub(r'[^\w\s]', ' ', target_dialogue).lower()
         self.mode = mode
@@ -771,8 +773,12 @@ class DialogueDetector:
         log.info("=== Phase 4: Output Generation ===")
 
         output_dir = self.work_dir
-        frame_path = output_dir / OUTPUT_FRAME
-        manifest_path = output_dir / OUTPUT_MANIFEST
+        output_dir.mkdir(parents=True, exist_ok=True)
+        self.frame_path = output_dir / f"output_frame_{self.session_id}.png"
+        self.manifest_path = output_dir / f"manifest_{self.session_id}.json"
+        
+        frame_path = self.frame_path
+        manifest_path = self.manifest_path
 
         if self.best.status == "NOT_FOUND":
             log.warning("No match found. Writing empty manifest.")

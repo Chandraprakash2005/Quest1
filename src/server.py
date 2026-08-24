@@ -4,7 +4,7 @@ import json
 import time
 import shutil
 from pathlib import Path
-from http.server import HTTPServer, SimpleHTTPRequestHandler
+from http.server import ThreadingHTTPServer, SimpleHTTPRequestHandler
 import urllib.parse
 
 # Ensure src is in the python path
@@ -21,7 +21,15 @@ class DialogueAPIHandler(SimpleHTTPRequestHandler):
 
     def do_GET(self):
         if self.path.startswith("/api/frame"):
-            frame_path = Path("output_frame.png")
+            query = urllib.parse.urlparse(self.path).query
+            params = urllib.parse.parse_qs(query)
+            session_id = params.get("id", [""])[0]
+            
+            if session_id:
+                frame_path = Path(f"work/output_frame_{session_id}.png")
+            else:
+                frame_path = Path("work/output_frame.png")
+                
             if frame_path.exists():
                 self.send_response(200)
                 self.send_header('Content-type', 'image/png')
@@ -51,9 +59,8 @@ class DialogueAPIHandler(SimpleHTTPRequestHandler):
                 return
             
             try:
-                # 1. Delete old assets
-                if ASSETS_DIR.exists():
-                    shutil.rmtree(ASSETS_DIR)
+                # We do not delete ASSETS_DIR anymore so it can be used concurrently.
+                # Just ensure it exists.
                 ASSETS_DIR.mkdir(parents=True, exist_ok=True)
                 
                 # 2. Run phase 0 to download & probe
@@ -75,8 +82,6 @@ class DialogueAPIHandler(SimpleHTTPRequestHandler):
             
             # If a new URL is provided, download it first!
             if url:
-                if ASSETS_DIR.exists():
-                    shutil.rmtree(ASSETS_DIR)
                 ASSETS_DIR.mkdir(parents=True, exist_ok=True)
                 
                 detector = DialogueDetector(url=url, target_dialogue="", mode=mode)
@@ -99,7 +104,7 @@ class DialogueAPIHandler(SimpleHTTPRequestHandler):
                 elapsed = time.time() - t0
                 
                 # Return the result and manifest contents
-                manifest_path = Path("manifest.json")
+                manifest_path = getattr(detector, 'manifest_path', Path(f"manifest_{detector.session_id}.json"))
                 manifest_data = {}
                 if manifest_path.exists():
                     with open(manifest_path, 'r') as f:
@@ -108,6 +113,7 @@ class DialogueAPIHandler(SimpleHTTPRequestHandler):
                 self._send_json(200, {
                     "status": "success", 
                     "elapsed": elapsed,
+                    "session_id": detector.session_id,
                     "result": manifest_data
                 })
             except Exception as e:
@@ -123,7 +129,7 @@ class DialogueAPIHandler(SimpleHTTPRequestHandler):
 
 if __name__ == '__main__':
     print(f"Starting server on http://localhost:{PORT}")
-    httpd = HTTPServer(('localhost', PORT), DialogueAPIHandler)
+    httpd = ThreadingHTTPServer(('localhost', PORT), DialogueAPIHandler)
     try:
         httpd.serve_forever()
     except KeyboardInterrupt:

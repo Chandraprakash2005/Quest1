@@ -83,8 +83,9 @@ searchBtn.addEventListener('click', async () => {
             console.log(data.result.confidence_score);
             resText.textContent = '"' + data.result.extracted_text + '"';
             
-            // Add cache buster to image
-            resImg.src = "/api/frame?t=" + new Date().getTime();
+            // Add cache buster to image and use session_id for concurrency
+            const sessionId = data.session_id || "";
+            resImg.src = `/api/frame?id=${sessionId}&t=` + new Date().getTime();
             
             resultSection.classList.remove("hidden");
         } else {
