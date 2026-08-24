@@ -179,6 +179,87 @@ class DialogueDetector:
         return re.sub(r'[^\w\s]', ' ', text).lower()
 
     def phase0_ingest(self) -> None:
+        """Download video and extract metadata + audio."""
+        log.info("=== Phase 0: Ingestion & Probing ===")
+
+        video_dir = Path("assets/video")
+        audio_dir = Path("assets/audio")
+        video_dir.mkdir(parents=True, exist_ok=True)
+        audio_dir.mkdir(parents=True, exist_ok=True)
+
+        video_path = video_dir / "video.mp4"
+        audio_path = audio_dir / "audio.wav"
+
+        # Use local video if provided, otherwise download
+        if self.local_video:
+            import shutil
+            local = Path(self.local_video)
+            if not local.exists():
+                raise FileNotFoundError(f"Local video not found: {self.local_video}")
+            if local.resolve() != video_path.resolve():
+                shutil.copy2(str(local), str(video_path))
+            log.info("Using local video: %s", self.local_video)
+        elif not video_path.exists():
+            log.info("Downloading video from %s ...", self.url)
+            # Try yt-dlp Python API first, then CLI fallback
+            try:
+                self._download_with_ytdlp(str(video_path))
+                log.info("Download complete: %s", video_path)
+            except Exception as exc:
+                log.error(
+                    "yt-dlp download failed: %s\n"
+                    "If ok.ru is blocked in your region, download the video manually\n"
+                    "and re-run with: --video path/to/video.mp4",
+                    exc,
+                )
+                raise
+        else:
+            log.info("Video already exists, skipping download.")
+
+        # Probe metadata with ffprobe
+        log.info("Probing video metadata...")
+        probe_cmd = [
+            "ffprobe", "-v", "quiet", "-print_format", "json",
+            "-show_streams", "-show_format", str(video_path),
+        ]
+        try:
+            result = subprocess.run(probe_cmd, check=True, capture_output=True, text=True)
+            info = json.loads(result.stdout)
+        except (subprocess.CalledProcessError, json.JSONDecodeError) as exc:
+            log.error("ffprobe failed: %s", exc)
+            raise
+
+        for stream in info.get("streams", []):
+            if stream.get("codec_type") == "video":
+                fps_str = stream.get("r_frame_rate", "25/1")
+                num, den = fps_str.split("/")
+                self.meta.fps = float(num) / float(den) if float(den) != 0 else 25.0
+                self.meta.width = int(stream.get("width", 0))
+                self.meta.height = int(stream.get("height", 0))
+                break
+
+        self.meta.duration = float(info.get("format", {}).get("duration", 0))
+        self.meta.video_path = str(video_path)
+        log.info(
+            "Metadata — fps=%.2f  duration=%.2fs  resolution=%dx%d",
+            self.meta.fps, self.meta.duration, self.meta.width, self.meta.height,
+        )
+
+        # Extract audio as 16 kHz mono WAV
+        if not audio_path.exists():
+            log.info("Extracting audio track...")
+            audio_cmd = [
+                "ffmpeg", "-y", "-i", str(video_path),
+                "-vn", "-acodec", "pcm_s16le", "-ar", "16000", "-ac", "1",
+                str(audio_path),
+            ]
+            try:
+                subprocess.run(audio_cmd, check=True, capture_output=True, text=True)
+            except subprocess.CalledProcessError as exc:
+                log.error("Audio extraction failed: %s", exc.stderr)
+                raise
+        self.meta.audio_path = str(audio_path)
+        log.info("Audio ready: %s", audio_path)
 
 
     def _download_with_ytdlp(self, output_path: str) -> None:
