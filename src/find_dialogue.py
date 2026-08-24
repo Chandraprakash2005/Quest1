@@ -156,16 +156,10 @@ class OCREngine:
 class DialogueDetector:
     """Orchestrates the full coarse-to-fine detection pipeline."""
 
-    def __init__(
-        self,
-        url: str,
-        target_dialogue: str,
-        work_dir: str = ".",
-        local_video: Optional[str] = None,
-        mode: str = "asr_only",
-    ) -> None:
+    def __init__(self, url: str, target_dialogue: str, work_dir: str = "work", local_video: str = "", mode: str = "asr_only") -> None:
+        import re
         self.url = url
-        self.target = target_dialogue
+        self.target = re.sub(r'[^\w\s]', ' ', target_dialogue).lower()
         self.mode = mode
         self.work_dir = Path(work_dir).resolve()
         
@@ -173,11 +167,18 @@ class DialogueDetector:
         self.fps_refinement = False
         self.work_dir.mkdir(parents=True, exist_ok=True)
         self.local_video = local_video
-
+        
         self.meta = VideoMeta()
         self.ocr = OCREngine()
         self.best: MatchResult = MatchResult()
         self.asr_best: Optional[MatchResult] = None
+        
+    def _clean(self, text: str) -> str:
+        """Strips punctuation to extract raw words for comparison."""
+        import re
+        return re.sub(r'[^\w\s]', ' ', text).lower()
+
+    def phase0_ingest(self) -> None:
 
 
     def _download_with_ytdlp(self, output_path: str) -> None:
@@ -539,13 +540,18 @@ class DialogueDetector:
                 continue
 
             text = self.ocr.extract_text(frame)
-            score = fuzz.token_set_ratio(self.target.lower(), text.lower())
+            score = fuzz.token_set_ratio(self._clean(self.target), self._clean(text))
 
             if score > best_score:
                 best_score = score
                 best_ts = ts
                 best_text = text
                 log.info("  t=%.2fs  score=%.0f  text='%s'", ts, score, text[:80])
+                
+                # Short-circuit coarse scan if we find a confident match
+                if best_score >= CONFIDENCE_OK:
+                    log.info("Target text found! Halting coarse scan early.")
+                    break
 
             ts += 1.0 / COARSE_FPS
 
@@ -581,33 +587,57 @@ class DialogueDetector:
                     t += step
                     continue
                 text = self.ocr.extract_text(frame)
-                score = fuzz.token_set_ratio(self.target.lower(), text.lower())
+                score = fuzz.token_set_ratio(self._clean(self.target), self._clean(text))
                 if score > best_s:
                     best_s, best_t, best_txt = score, t, text
+                    # Early stopping: if we hit a highly confident match, we don't need to check further in this window!
+                    if best_s >= CONFIDENCE_OK:
+                        break
                 t += step
             return best_s, best_t, best_txt
 
-        # Pass A: 0.1s granularity in ±2.0s
-        log.info("Pass A: 0.1s steps in [%.2f, %.2f]", t_coarse - 2.0, t_coarse + 2.0)
-        s_a, t_a, txt_a = scan_range(
-            max(0, t_coarse - 2.0), min(self.meta.duration, t_coarse + 2.0), REFINE_PASS_A
-        )
+        if self.mode == "ocr_only":
+            # For OCR only, we know the match appeared between t_coarse-1.0 and t_coarse
+            window_a_start = max(0, t_coarse - 1.0)
+            window_a_end = t_coarse
+            
+            # We want to do f-f for ocr_only
+            self.fps_refinement = True
+        else:
+            # For ASR+OCR, we look at +/- 2.0 around the audio anchor
+            window_a_start = max(0, t_coarse - 2.0)
+            window_a_end = min(self.meta.duration, t_coarse + 2.0)
+            
+        # Pass A: 0.1s granularity
+        log.info("Pass A: 0.1s steps in [%.2f, %.2f]", window_a_start, window_a_end)
+        s_a, t_a, txt_a = scan_range(window_a_start, window_a_end, REFINE_PASS_A)
         log.info("  → best t=%.3fs  score=%.0f", t_a, s_a)
 
-        # Pass B: 0.01s granularity in ±0.1s
-        log.info("Pass B: 0.01s steps around %.3fs", t_a)
-        s_b, t_b, txt_b = scan_range(
-            max(0, t_a - 0.1), min(self.meta.duration, t_a + 0.1), REFINE_PASS_B
-        )
+        if self.mode == "ocr_only":
+            window_b_start = max(0, t_a - 0.1)
+            window_b_end = t_a
+        else:
+            window_b_start = max(0, t_a - 0.1)
+            window_b_end = min(self.meta.duration, t_a + 0.1)
+
+        # Pass B: 0.01s granularity
+        log.info("Pass B: 0.01s steps in [%.2f, %.2f]", window_b_start, window_b_end)
+        s_b, t_b, txt_b = scan_range(window_b_start, window_b_end, REFINE_PASS_B)
         log.info("  → best t=%.4fs  score=%.0f", t_b, s_b)
 
-        # Pass C: frame-by-frame in ±0.01s
+        # Pass C: frame-by-frame
         if self.fps_refinement:
             frame_step = 1.0 / self.meta.fps if self.meta.fps > 0 else 0.04
-            log.info("Pass C: frame-level (%.5fs) around %.4fs", frame_step, t_b)
-            s_c, t_c, txt_c = scan_range(
-                max(0, t_b - 0.05), min(self.meta.duration, t_b + 0.05), frame_step
-            )
+            
+            if self.mode == "ocr_only":
+                window_c_start = max(0, t_b - 0.01)
+                window_c_end = t_b
+            else:
+                window_c_start = max(0, t_b - 0.05)
+                window_c_end = min(self.meta.duration, t_b + 0.05)
+                
+            log.info("Pass C: frame-level (%.5fs) in [%.4f, %.4f]", frame_step, window_c_start, window_c_end)
+            s_c, t_c, txt_c = scan_range(window_c_start, window_c_end, frame_step)
             log.info("  → FINAL t=%.5fs  score=%.0f", t_c, s_c)
         else:
             log.info("Pass C: Skipped (Not required for mode='%s')", self.mode)
@@ -638,7 +668,7 @@ class DialogueDetector:
             if not ret:
                 break
             text = self.ocr.extract_text(frame)
-            score = fuzz.token_set_ratio(self.target.lower(), text.lower())
+            score = fuzz.token_set_ratio(self._clean(self.target), self._clean(text))
             if score >= CONFIDENCE_LOW:
                 earliest_t = t
                 earliest_txt = text
