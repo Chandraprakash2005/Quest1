@@ -79,8 +79,8 @@ searchBtn.addEventListener('click', async () => {
             resStatus.className = "value " + (data.result.status === "NOT_FOUND" ? "error" : "highlight");
             
             resTime.textContent = data.result.timestamp;
-            resConf.textContent = data.result.confidence + "%";
-            console.log(data.result.confidence );
+            resConf.textContent = data.result.confidence_score + "%";
+            console.log(data.result.confidence_score);
             resText.textContent = '"' + data.result.extracted_text + '"';
             
             // Add cache buster to image
