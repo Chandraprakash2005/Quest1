@@ -116,3 +116,7 @@ Now, execute the generation of all 5 files sequentially.
 ## 6. Execution Mode Selector
 **User Prompt:** "now i need a a drop down i which i can select the asr , asr + ocr or ocr alone, as the name suggest add the features for the asr + ocr , make sure that it check the audio and then +2 or -2 sec and only go up to .o1 sec and not the 0.001 and f - f"
 **Result:** Added a frontend dropdown allowing users to select `ASR Only`, `ASR + OCR (Fine)`, and `OCR Only`. Backend dynamically routes the request. ASR+OCR mode anchors via audio, creates a ±2.0s search window, and performs an OCR binary search bounded at 0.01s granularity (skipping the heavy frame-by-frame search) to find the exact sub-second appearance.
+
+## 7. Granular OCR Refinement Tuning
+**User Prompt:** "When 'OCR Only' mode is selected, ensure it completely bypasses the ASR transcript cache. Additionally, cap the temporal refinement algorithm at 0.01-second granularity instead of dropping down to a frame-by-frame (1/fps) iteration, to save processing time."
+**Result:** Implemented a global logic flag `self.fps_refinement = False` which forces the OCR refinement pipeline (Pass A, Pass B) to stop at 0.01 seconds, completely bypassing the heavy `1/fps` Pass C. Additionally, verified that the `OCR Only` mode natively avoids the ASR audio caching layer, moving straight into the 1-second coarse visual scan.

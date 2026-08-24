@@ -169,8 +169,8 @@ class DialogueDetector:
         self.mode = mode
         self.work_dir = Path(work_dir).resolve()
         
-        # We cap at 0.01s granularity by default. We do NOT drop to 1/fps for ASR+OCR refinement.
-        self.fps_refinement = False if self.mode == "asr_ocr" else True
+        # As requested, cap OCR refinement at 0.01s granularity for all OCR modes (avoid 1/fps)
+        self.fps_refinement = False
         self.work_dir.mkdir(parents=True, exist_ok=True)
         self.local_video = local_video
 
