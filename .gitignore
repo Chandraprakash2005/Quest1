@@ -16,7 +16,7 @@ env/
 .idea/
 *.swp
 *.swo
-src/work
+output/
 
 # OS
 .DS_Store

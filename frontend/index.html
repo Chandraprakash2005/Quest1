@@ -21,6 +21,12 @@
 
         <section class="card url-section">
             <h2>1. Load Video</h2>
+            <div class="input-group" style="margin-bottom: 10px;">
+                <select id="video-select" class="primary-btn" style="background: rgba(255, 255, 255, 0.1); color: white; border: 1px solid rgba(255, 255, 255, 0.2); padding: 0.8rem; border-radius: 8px; width: 100%; cursor: pointer;">
+                    <option value="" style="color: black;">Select a cached video...</option>
+                </select>
+            </div>
+            <p style="text-align: center; color: rgba(255, 255, 255, 0.6); margin: 5px 0;">OR</p>
             <div class="input-group">
                 <input type="text" id="video-url" placeholder="Paste YouTube or OK.ru URL here..." />
                 <button id="load-btn" class="primary-btn">Download & Cache</button>

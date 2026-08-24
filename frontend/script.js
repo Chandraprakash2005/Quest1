@@ -1,5 +1,6 @@
 const loadBtn = document.getElementById('load-btn');
 const videoUrlInput = document.getElementById('video-url');
+const videoSelect = document.getElementById('video-select');
 const loadStatus = document.getElementById('load-status');
 
 const searchSection = document.getElementById('search-section');
@@ -14,10 +15,34 @@ const resConf = document.getElementById('res-conf');
 const resText = document.getElementById('res-text');
 const resImg = document.getElementById('res-img');
 
+// Fetch cached videos on page load
+window.addEventListener('DOMContentLoaded', async () => {
+    try {
+        const resp = await fetch('/api/videos');
+        if (resp.ok) {
+            const data = await resp.json();
+            data.videos.forEach(vid => {
+                const opt = document.createElement('option');
+                opt.value = vid;
+                opt.textContent = vid;
+                opt.style.color = "black";
+                videoSelect.appendChild(opt);
+            });
+            if (data.videos.length > 0) {
+                searchSection.classList.remove("disabled");
+            }
+        }
+    } catch (e) {
+        console.error("Failed to fetch videos", e);
+    }
+});
+
 loadBtn.addEventListener('click', async () => {
     const url = videoUrlInput.value.trim();
-    if (!url) {
-        showStatus(loadStatus, "Please enter a valid URL.", "error");
+    const localVideo = videoSelect.value;
+    
+    if (!url && !localVideo) {
+        showStatus(loadStatus, "Please select a cached video or enter a URL.", "error");
         return;
     }
 
@@ -30,7 +55,7 @@ loadBtn.addEventListener('click', async () => {
         const response = await fetch('/api/load', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ url: url })
+            body: JSON.stringify({ url: url, local_video: localVideo })
         });
         
         const data = await response.json();
@@ -66,6 +91,7 @@ searchBtn.addEventListener('click', async () => {
             body: JSON.stringify({ 
                 target: targetText,
                 url: videoUrlInput.value.trim(),
+                local_video: videoSelect.value,
                 mode: searchMode
             })
         });
@@ -92,10 +118,16 @@ searchBtn.addEventListener('click', async () => {
             resStatus.textContent = statusText;
             resStatus.className = "value " + (data.result.status === "NOT_FOUND" ? "error" : "highlight");
             
-            resTime.textContent = data.result.timestamp;
-            resConf.textContent = data.result.confidence_score + "%";
-            console.log(data.result.confidence_score);
-            resText.textContent = '"' + data.result.extracted_text + '"';
+            if (data.result.status === "NOT_FOUND") {
+                resTime.textContent = "N/A";
+                resConf.textContent = "N/A";
+                resText.textContent = '"Not found in the video"';
+            } else {
+                resTime.textContent = data.result.timestamp;
+                resConf.textContent = data.result.confidence_score + "%";
+                console.log(data.result.confidence_score);
+                resText.textContent = '"' + data.result.extracted_text + '"';
+            }
             
             // Add cache buster to image and use session_id for concurrency
             const sessionId = data.session_id || "";

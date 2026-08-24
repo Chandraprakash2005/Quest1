@@ -17,6 +17,7 @@ from find_dialogue import DialogueDetector
 PORT = 8000
 FRONTEND_DIR = Path(__file__).parent.parent / "frontend"
 ASSETS_DIR = Path(__file__).parent.parent / "assets"
+OUTPUT_DIR = Path(__file__).parent.parent / "output"
 
 class DialogueAPIHandler(SimpleHTTPRequestHandler):
     def __init__(self, *args, **kwargs):
@@ -29,9 +30,9 @@ class DialogueAPIHandler(SimpleHTTPRequestHandler):
             session_id = params.get("id", [""])[0]
             
             if session_id:
-                frame_path = Path(f"work/output_frame_{session_id}.png")
+                frame_path = OUTPUT_DIR / f"output_frame_{session_id}.png"
             else:
-                frame_path = Path("work/output_frame.png")
+                frame_path = OUTPUT_DIR / "output_frame.png"
                 
             if frame_path.exists():
                 self.send_response(200)
@@ -42,7 +43,19 @@ class DialogueAPIHandler(SimpleHTTPRequestHandler):
             else:
                 self.send_error(404, "Frame not found")
             return
-        
+            
+        if self.path == "/api/videos":
+            videos = []
+            video_dir = ASSETS_DIR / "video"
+            if video_dir.exists():
+                for file in video_dir.glob("*.mp4"):
+                    videos.append(file.name)
+            self.send_response(200)
+            self.send_header('Content-type', 'application/json')
+            self.end_headers()
+            self.wfile.write(json.dumps({"videos": videos}).encode('utf-8'))
+            return
+
         # Serve frontend static files
         super().do_GET()
 
@@ -57,8 +70,9 @@ class DialogueAPIHandler(SimpleHTTPRequestHandler):
 
         if self.path == '/api/load':
             url = req_body.get('url', '')
-            if not url:
-                self._send_json(400, {"error": "No URL provided"})
+            local_video = req_body.get('local_video', '')
+            if not url and not local_video:
+                self._send_json(400, {"error": "Missing URL or local_video parameter"})
                 return
             
             try:
@@ -67,7 +81,7 @@ class DialogueAPIHandler(SimpleHTTPRequestHandler):
                 ASSETS_DIR.mkdir(parents=True, exist_ok=True)
                 
                 # 2. Run phase 0 to download & probe
-                detector = DialogueDetector(url=url, target_dialogue="")
+                detector = DialogueDetector(url=url, target_dialogue="", local_video=local_video, work_dir=str(OUTPUT_DIR))
                 detector.phase0_ingest()
                 
                 self._send_json(200, {"status": "success"})
@@ -75,40 +89,35 @@ class DialogueAPIHandler(SimpleHTTPRequestHandler):
                 self._send_json(500, {"error": str(e)})
 
         elif self.path == '/api/search':
-            target = req_body.get('target', '')
             url = req_body.get('url', '')
+            target = req_body.get('target', '')
             mode = req_body.get('mode', 'asr_only')
+            local_video = req_body.get('local_video', '')
             
-            if not target:
-                self._send_json(400, {"error": "No target provided"})
+            if (not url and not local_video) or not target:
+                self._send_json(400, {"error": "Missing url, local_video, or target parameter"})
                 return
             
-            video_path = ASSETS_DIR / "video" / "video.mp4"
-            
-            # Only download if video doesn't exist yet
-            if not video_path.exists():
-                if url:
-                    ASSETS_DIR.mkdir(parents=True, exist_ok=True)
-                    detector = DialogueDetector(url=url, target_dialogue="", mode=mode)
-                    detector.phase0_ingest()
-                else:
-                    self._send_json(400, {"error": "No video cached. Please load a video first."})
-                    return
-            
-            if not video_path.exists():
-                self._send_json(400, {"error": "Video download failed. Try again."})
-                return
-                
+            if local_video:
+                video_path = ASSETS_DIR / "video" / local_video
+                local_video_path_str = str(video_path)
+            else:
+                # No local video provided, we will let DialogueDetector handle the download
+                local_video_path_str = ""
+
             try:
-                t0 = time.time()
-                detector = DialogueDetector(
-                    url="", 
-                    target_dialogue=target, 
-                    local_video=str(video_path),
-                    mode=mode
-                )
+                t_start = time.time()
+                detector = DialogueDetector(url=url, target_dialogue=target, mode=mode, local_video=local_video_path_str, work_dir=str(OUTPUT_DIR))
+                # Ensure the video is downloaded or local video exists
+                detector.phase0_ingest()
+                
+                # Check if video was successfully ingested
+                if not Path(detector.meta.video_path).exists():
+                    self._send_json(400, {"error": "Video download failed or file missing. Try again."})
+                    return
+                
                 result = detector.run()
-                elapsed = time.time() - t0
+                elapsed = time.time() - t_start
                 
                 # Return the result and manifest contents
                 manifest_path = getattr(detector, 'manifest_path', Path(f"manifest_{detector.session_id}.json"))

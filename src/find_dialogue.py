@@ -196,7 +196,7 @@ class OCREngine:
 class DialogueDetector:
     """Orchestrates the full coarse-to-fine detection pipeline."""
 
-    def __init__(self, url: str, target_dialogue: str, work_dir: str = "work", local_video: str = "", mode: str = "asr_only") -> None:
+    def __init__(self, url: str, target_dialogue: str, work_dir: str = "output", local_video: str = "", mode: str = "asr_only") -> None:
         import re
         import uuid
         self.session_id = uuid.uuid4().hex
@@ -243,103 +243,26 @@ class DialogueDetector:
         import re
         return re.sub(r'[^\w\s]', ' ', text).lower()
 
-    def phase0_ingest(self) -> None:
-        """Download video and extract metadata + audio."""
-        log.info("=== Phase 0: Ingestion & Probing ===")
 
-        video_dir = Path("assets/video")
-        audio_dir = Path("assets/audio")
-        video_dir.mkdir(parents=True, exist_ok=True)
-        audio_dir.mkdir(parents=True, exist_ok=True)
-
-        video_path = video_dir / "video.mp4"
-        audio_path = audio_dir / "audio.wav"
-
-        # Use local video if provided, otherwise download
-        if self.local_video:
-            import shutil
-            local = Path(self.local_video)
-            if not local.exists():
-                raise FileNotFoundError(f"Local video not found: {self.local_video}")
-            if local.resolve() != video_path.resolve():
-                shutil.copy2(str(local), str(video_path))
-            log.info("Using local video: %s", self.local_video)
-        elif not video_path.exists():
-            log.info("Downloading video from %s ...", self.url)
-            # Try yt-dlp Python API first, then CLI fallback
-            try:
-                self._download_with_ytdlp(str(video_path))
-                log.info("Download complete: %s", video_path)
-            except Exception as exc:
-                log.error(
-                    "yt-dlp download failed: %s\n"
-                    "If ok.ru is blocked in your region, download the video manually\n"
-                    "and re-run with: --video path/to/video.mp4",
-                    exc,
-                )
-                raise
-        else:
-            log.info("Video already exists, skipping download.")
-
-        # Probe metadata with ffprobe
-        log.info("Probing video metadata...")
-        probe_cmd = [
-            "ffprobe", "-v", "quiet", "-print_format", "json",
-            "-show_streams", "-show_format", str(video_path),
-        ]
-        try:
-            result = subprocess.run(probe_cmd, check=True, capture_output=True, text=True)
-            info = json.loads(result.stdout)
-        except (subprocess.CalledProcessError, json.JSONDecodeError) as exc:
-            log.error("ffprobe failed: %s", exc)
-            raise
-
-        for stream in info.get("streams", []):
-            if stream.get("codec_type") == "video":
-                fps_str = stream.get("r_frame_rate", "25/1")
-                num, den = fps_str.split("/")
-                self.meta.fps = float(num) / float(den) if float(den) != 0 else 25.0
-                self.meta.width = int(stream.get("width", 0))
-                self.meta.height = int(stream.get("height", 0))
-                break
-
-        self.meta.duration = float(info.get("format", {}).get("duration", 0))
-        self.meta.video_path = str(video_path)
-        log.info(
-            "Metadata — fps=%.2f  duration=%.2fs  resolution=%dx%d",
-            self.meta.fps, self.meta.duration, self.meta.width, self.meta.height,
-        )
-
-        # Extract audio as 16 kHz mono WAV
-        if not audio_path.exists():
-            log.info("Extracting audio track...")
-            audio_cmd = [
-                "ffmpeg", "-y", "-i", str(video_path),
-                "-vn", "-acodec", "pcm_s16le", "-ar", "16000", "-ac", "1",
-                str(audio_path),
-            ]
-            try:
-                subprocess.run(audio_cmd, check=True, capture_output=True, text=True)
-            except subprocess.CalledProcessError as exc:
-                log.error("Audio extraction failed: %s", exc.stderr)
-                raise
-        self.meta.audio_path = str(audio_path)
-        log.info("Audio ready: %s", audio_path)
-
-
-    def _download_with_ytdlp(self, output_path: str) -> None:
-        """Download video — tries direct HTTP extraction first, then yt-dlp."""
+    def _download_with_ytdlp(self) -> Path:
+        """Download video — tries direct HTTP extraction first, then yt-dlp.
+        Returns the path to the downloaded video file.
+        """
         import re
         import requests as req
+        video_dir = Path("assets/video")
+        video_dir.mkdir(parents=True, exist_ok=True)
 
         # ── Strategy 1: Direct extraction from ok.ru desktop page ──
         if "ok.ru" in self.url:
             try:
                 log.info("Strategy 1: Direct ok.ru page extraction...")
-                video_url = self._extract_okru_direct_url()
+                video_url, title = self._extract_okru_direct_url_and_title()
                 if video_url:
-                    self._http_download(video_url, output_path)
-                    return
+                    out_path = video_dir / f"{title}.mp4"
+                    if not out_path.exists():
+                        self._http_download(video_url, str(out_path))
+                    return out_path
             except Exception as exc:
                 log.warning("Direct extraction failed: %s", exc)
 
@@ -347,9 +270,13 @@ class DialogueDetector:
         log.info("Strategy 2: yt-dlp download...")
         import yt_dlp
 
+        # Download with title as filename
+        outtmpl = str(video_dir / "%(title)s.%(ext)s")
+        
         base_opts = {
             "merge_output_format": "mp4",
-            "outtmpl": output_path,
+            "outtmpl": outtmpl,
+            "restrictfilenames": True, # avoid weird chars
             "retries": 5,
             "fragment_retries": 5,
             "socket_timeout": 60,
@@ -371,8 +298,13 @@ class DialogueDetector:
                 try:
                     opts = {**base_opts, "format": fmt, "quiet": True}
                     with yt_dlp.YoutubeDL(opts) as ydl:
-                        ydl.download([self.url])
-                    return
+                        info = ydl.extract_info(self.url, download=True)
+                        final_filename = ydl.prepare_filename(info)
+                        # prepare_filename sometimes gives the pre-merged extension (e.g. .webm)
+                        # We force merge to mp4, so let's ensure the path returned has .mp4
+                        if not final_filename.endswith('.mp4'):
+                            final_filename = str(Path(final_filename).with_suffix('.mp4'))
+                        return Path(final_filename)
                 except Exception as exc:
                     log.warning("yt-dlp (%s) retry %d failed: %s", fmt, retry + 1, str(exc)[:80])
                     time.sleep(2 ** retry)
@@ -382,8 +314,8 @@ class DialogueDetector:
             "  Re-run with: --video path/to/downloaded_video.mp4"
         )
 
-    def _extract_okru_direct_url(self) -> Optional[str]:
-        """Extract the best direct video URL from ok.ru desktop page."""
+    def _extract_okru_direct_url_and_title(self) -> Tuple[Optional[str], str]:
+        """Extract the best direct video URL and title from ok.ru desktop page."""
         import re
         import requests as req
 
@@ -398,10 +330,14 @@ class DialogueDetector:
         resp.raise_for_status()
         html = resp.text
 
+        title_match = re.search(r'<title>(.*?)</title>', html)
+        title = title_match.group(1).replace(" | OK.RU", "").strip() if title_match else "video"
+        title = re.sub(r'[^\w\s-]', '', title).replace(' ', '_')
+
         # ok.ru stores metadata in data-options attribute
         match = re.search(r'data-options="([^"]+)"', html)
         if not match:
-            return None
+            return None, title
 
         raw = match.group(1).replace("&amp;", "&").replace("&quot;", '"').replace("&#39;", "'")
         try:
@@ -437,12 +373,12 @@ class DialogueDetector:
         for q in quality_order:
             if q in url_map and url_map[q]:
                 url = url_map[q].replace("\\u0026", "&")
-                log.info("Found %s quality stream", q)
-                return url
+                log.info("Found %s quality stream for '%s'", q, title)
+                return url, title
 
         # Return first available
         first_url = videos[0].get("url", "")
-        return first_url.replace("\\u0026", "&") if first_url else None
+        return (first_url.replace("\\u0026", "&") if first_url else None), title
 
     def _http_download(self, url: str, output_path: str) -> None:
         """Download a file via HTTP with progress logging."""
@@ -484,34 +420,32 @@ class DialogueDetector:
         video_dir.mkdir(parents=True, exist_ok=True)
         audio_dir.mkdir(parents=True, exist_ok=True)
 
-        video_path = video_dir / "video.mp4"
-        audio_path = audio_dir / "audio.wav"
-
+        video_path = None
+        
         # Use local video if provided, otherwise download
         if self.local_video:
             import shutil
             local = Path(self.local_video)
             if not local.exists():
                 raise FileNotFoundError(f"Local video not found: {self.local_video}")
-            if local.resolve() != video_path.resolve():
-                shutil.copy2(str(local), str(video_path))
+            video_path = local
             log.info("Using local video: %s", self.local_video)
-        elif not video_path.exists():
+        else:
             log.info("Downloading video from %s ...", self.url)
-            # Try yt-dlp Python API first, then CLI fallback
             try:
-                self._download_with_ytdlp(str(video_path))
-                log.info("Download complete: %s", video_path)
+                video_path = self._download_with_ytdlp()
+                log.info("Download complete/verified: %s", video_path)
             except Exception as exc:
                 log.error(
-                    "yt-dlp download failed: %s\n"
+                    "Download failed: %s\n"
                     "If ok.ru is blocked in your region, download the video manually\n"
                     "and re-run with: --video path/to/video.mp4",
                     exc,
                 )
                 raise
-        else:
-            log.info("Video already exists, skipping download.")
+                
+        # Derive matching audio path based on video filename
+        audio_path = audio_dir / f"{video_path.stem}.wav"
 
         # Probe metadata with ffprobe
         log.info("Probing video metadata...")
@@ -609,8 +543,11 @@ class DialogueDetector:
             window = transcript_words[i:i + n_target]
             window_clean = [re.sub(r'[^\w]', '', w["word"]).lower() for w in window]
             
-            # Count exact word matches
-            matches = sum(1 for t, w in zip(target_clean, window_clean) if t == w)
+            # Count exact word matches (allowing for trailing 's')
+            matches = 0
+            for t, w in zip(target_clean, window_clean):
+                if t == w or w == t + 's' or t == w + 's':
+                    matches += 1
             score = (matches / n_target) * 100
             
             if score > best_score:
@@ -1036,6 +973,10 @@ class DialogueDetector:
                 # Zoom into a -2.0 to +2.0 second window around the ASR timestamp
                 t_coarse = self.asr_best.timestamp
                 self.phase3_refine(t_coarse)
+                
+                # Restore the full context text from ASR instead of using the raw OCR subtitle fragment
+                if self.best.status != "NOT_FOUND":
+                    self.best.extracted_text = self.asr_best.extracted_text
             else:
                 log.warning("Mode 'asr_ocr': ASR failed. Falling back to full video OCR.")
                 t_coarse = self.phase2_coarse_ocr(window)
