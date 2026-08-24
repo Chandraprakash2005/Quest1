@@ -587,10 +587,10 @@ class DialogueDetector:
                 t += step
             return best_s, best_t, best_txt
 
-        # Pass A: 0.1s granularity in ±1s
-        log.info("Pass A: 0.1s steps in [%.2f, %.2f]", t_coarse - 1.0, t_coarse + 1.0)
+        # Pass A: 0.1s granularity in ±2.0s
+        log.info("Pass A: 0.1s steps in [%.2f, %.2f]", t_coarse - 2.0, t_coarse + 2.0)
         s_a, t_a, txt_a = scan_range(
-            max(0, t_coarse - 1.0), min(self.meta.duration, t_coarse + 1.0), REFINE_PASS_A
+            max(0, t_coarse - 2.0), min(self.meta.duration, t_coarse + 2.0), REFINE_PASS_A
         )
         log.info("  → best t=%.3fs  score=%.0f", t_a, s_a)
 
