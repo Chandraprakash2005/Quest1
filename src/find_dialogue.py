@@ -133,6 +133,12 @@ _TRANSCRIPT_CACHE = {
     "segments": []
 }
 
+_OCR_CACHE = {
+    "video_path": "",
+    "timestamp": 0,
+    "words": []
+}
+
 class OCREngine:
     """Wraps PaddleOCR with EasyOCR fallback."""
 
@@ -675,48 +681,110 @@ class DialogueDetector:
         return SearchWindow(0.0, self.meta.duration)
 
     # ---- Phase 2 ----
+    def _build_ocr_cache(self) -> None:
+        """Process the entire video at 1 fps in parallel chunks to build the OCR cache."""
+        import concurrent.futures
+        
+        num_workers = 4
+        chunk_duration = self.meta.duration / num_workers
+        chunks = [(i * chunk_duration, (i + 1) * chunk_duration if i < num_workers - 1 else self.meta.duration) for i in range(num_workers)]
+        
+        all_words = []
+        
+        def process_chunk(start_ts: float, end_ts: float) -> list:
+            cap = cv2.VideoCapture(self.meta.video_path)
+            chunk_results = []
+            prev_hash = None
+            ts = start_ts
+            
+            while ts <= end_ts:
+                cap.set(cv2.CAP_PROP_POS_MSEC, ts * 1000)
+                ret, frame = cap.read()
+                if not ret:
+                    ts += 1.0 / COARSE_FPS
+                    continue
+                    
+                sub_region = self._crop_subtitle_region(frame)
+                gray = cv2.cvtColor(sub_region, cv2.COLOR_BGR2GRAY)
+                resized = cv2.resize(gray, (8, 8))
+                avg = resized.mean()
+                h = 0
+                for i, px in enumerate(resized.flatten()):
+                    if px > avg:
+                        h |= 1 << i
+                        
+                if prev_hash is not None:
+                    diff = bin(h ^ prev_hash).count('1')
+                    if diff < 5:
+                        ts += 1.0 / COARSE_FPS
+                        continue
+                prev_hash = h
+                
+                text = self.ocr.extract_text(sub_region)
+                if text.strip():
+                    chunk_results.append({"word": text, "start": ts, "end": ts + 1.0 / COARSE_FPS})
+                ts += 1.0 / COARSE_FPS
+                
+            cap.release()
+            return chunk_results
+
+        log.info("Building full OCR cache across %d threads...", num_workers)
+        with concurrent.futures.ThreadPoolExecutor(max_workers=num_workers) as executor:
+            futures = [executor.submit(process_chunk, c[0], c[1]) for c in chunks]
+            for future in concurrent.futures.as_completed(futures):
+                try:
+                    all_words.extend(future.result())
+                except Exception as exc:
+                    log.error("OCR chunk processing failed: %s", exc)
+                    
+        all_words.sort(key=lambda x: x["start"])
+        
+        # Deduplicate: only store the FIRST appearance of any unique text to save memory
+        unique_words = []
+        seen_texts = set()
+        for item in all_words:
+            norm_text = self._clean(item["word"])
+            if norm_text and norm_text not in seen_texts:
+                seen_texts.add(norm_text)
+                unique_words.append(item)
+        
+        global _OCR_CACHE
+        _OCR_CACHE = {
+            "video_path": self.meta.video_path,
+            "timestamp": time.time(),
+            "words": unique_words
+        }
+
+    # ---- Phase 2 ----
     def phase2_coarse_ocr(self, window: SearchWindow) -> Optional[float]:
-        """Sample at 1 fps within the window and OCR each frame.
-        Uses subtitle-region cropping and frame deduplication for speed.
-        """
-        log.info("=== Phase 2: Coarse Sampled OCR (1 fps) ===")
-        log.info("Scanning window [%.2f, %.2f] ...", window.start, window.end)
-
-        cap = cv2.VideoCapture(self.meta.video_path)
-        if not cap.isOpened():
-            log.error("Cannot open video file.")
-            return None
-
+        """Query the cached 1 fps OCR data to find the target."""
+        log.info("=== Phase 2: Coarse Sampled OCR ===")
+        
+        global _OCR_CACHE
+        cache_video = _OCR_CACHE.get("video_path", "")
+        cache_fresh = (time.time() - _OCR_CACHE.get("timestamp", 0)) < 600
+        
+        if cache_video != self.meta.video_path or not cache_fresh:
+            log.info("OCR cache miss. Building full video OCR cache (This may take a minute on first run)...")
+            self._build_ocr_cache()
+        else:
+            log.info("Using cached OCR transcript. Skipping full video scan!")
+            
+        words = _OCR_CACHE.get("words", [])
+        
         best_score = 0.0
         best_ts = 0.0
         best_text = ""
-        self._prev_sub_hash = None  # reset dedup for this scan
-        skipped = 0
 
-        ts = window.start
-        while ts <= window.end:
-            cap.set(cv2.CAP_PROP_POS_MSEC, ts * 1000)
-            ret, frame = cap.read()
-            if not ret:
-                ts += 1.0 / COARSE_FPS
+        for item in words:
+            ts = item["start"]
+            if ts < window.start or ts > window.end:
                 continue
-
-            # Crop to subtitle region (bottom 30%) for faster OCR
-            sub_region = self._crop_subtitle_region(frame)
-            
-            # Skip if subtitle region hasn't changed
-            if self._is_duplicate_frame(sub_region):
-                skipped += 1
-                ts += 1.0 / COARSE_FPS
-                continue
-
-            text = self.ocr.extract_text(sub_region)
+                
+            text = item["word"]
             score = fuzz.token_set_ratio(self._clean(self.target), self._clean(text))
 
             if score >= CONFIDENCE_LOW:
-                # Halt immediately to preserve the EARLIEST acceptable occurrence!
-                # If we keep scanning for a higher score, we might skip the first occurrence
-                # and lock onto a later occurrence of the same word (e.g., at 4.0s instead of 1.3s).
                 best_score = score
                 best_ts = ts
                 best_text = text
@@ -728,13 +796,6 @@ class DialogueDetector:
                 best_score = score
                 best_ts = ts
                 best_text = text
-                log.info("  t=%.2fs  score=%.0f  text='%s'", ts, score, text[:80])
-
-            ts += 1.0 / COARSE_FPS
-
-        cap.release()
-        if skipped > 0:
-            log.info("Skipped %d duplicate frames (no subtitle change)", skipped)
 
         if best_score >= CONFIDENCE_LOW:
             status = "OK" if best_score >= CONFIDENCE_OK else "LOW_CONFIDENCE"
@@ -979,6 +1040,9 @@ class DialogueDetector:
                 # Restore the full context text from ASR instead of using the raw OCR subtitle fragment
                 if self.best.status != "NOT_FOUND":
                     self.best.extracted_text = self.asr_best.extracted_text
+                else:
+                    log.warning("OCR refinement failed to find subtitles. Falling back to ASR anchor.")
+                    self.best = self.asr_best
             else:
                 log.warning("Mode 'asr_ocr': ASR failed. Falling back to full video OCR.")
                 t_coarse = self.phase2_coarse_ocr(window)
