@@ -910,6 +910,7 @@ class DialogueDetector:
                 "extracted_text": "",
                 "confidence_score": 0.0,
                 "status": "NOT_FOUND",
+                "image_path": ""
             }
             manifest_path.write_text(json.dumps(manifest, indent=2))
             log.info("Manifest written to %s", manifest_path)
@@ -940,6 +941,7 @@ class DialogueDetector:
             "extracted_text": self.best.extracted_text,
             "confidence_score": round(self.best.confidence, 2),
             "status": self.best.status,
+            "image_path": str(frame_path.resolve()) if ret else ""
         }
         manifest_path.write_text(json.dumps(manifest, indent=2))
         log.info("Manifest written: %s", manifest_path)

@@ -11,9 +11,15 @@ const searchStatus = document.getElementById('search-status');
 const resultSection = document.getElementById('result-section');
 const resStatus = document.getElementById('res-status');
 const resTime = document.getElementById('res-time');
+const resFrame = document.getElementById('res-frame');
 const resConf = document.getElementById('res-conf');
 const resText = document.getElementById('res-text');
 const resImg = document.getElementById('res-img');
+
+const metricTime = document.getElementById('metric-time');
+const metricFrame = document.getElementById('metric-frame');
+const metricConf = document.getElementById('metric-conf');
+const imgContainer = document.querySelector('.result-image');
 
 // Fetch cached videos on page load
 window.addEventListener('DOMContentLoaded', async () => {
@@ -119,19 +125,26 @@ searchBtn.addEventListener('click', async () => {
             resStatus.className = "value " + (data.result.status === "NOT_FOUND" ? "error" : "highlight");
             
             if (data.result.status === "NOT_FOUND") {
-                resTime.textContent = "N/A";
-                resConf.textContent = "N/A";
+                metricTime.style.display = "none";
+                metricFrame.style.display = "none";
+                metricConf.style.display = "none";
+                imgContainer.style.display = "none";
                 resText.textContent = '"Not found in the video"';
             } else {
+                metricTime.style.display = "flex";
+                metricFrame.style.display = "flex";
+                metricConf.style.display = "flex";
+                imgContainer.style.display = "flex";
+                
                 resTime.textContent = data.result.timestamp;
+                resFrame.textContent = data.result.frame_number;
                 resConf.textContent = data.result.confidence_score + "%";
-                console.log(data.result.confidence_score);
                 resText.textContent = '"' + data.result.extracted_text + '"';
+                
+                // Add cache buster to image and use session_id for concurrency
+                const sessionId = data.session_id || "";
+                resImg.src = `/api/frame?id=${sessionId}&t=` + new Date().getTime();
             }
-            
-            // Add cache buster to image and use session_id for concurrency
-            const sessionId = data.session_id || "";
-            resImg.src = `/api/frame?id=${sessionId}&t=` + new Date().getTime();
             
             resultSection.classList.remove("hidden");
         } else {
