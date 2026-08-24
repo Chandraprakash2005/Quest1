@@ -577,7 +577,7 @@ class DialogueDetector:
         cache_fresh = (time.time() - _TRANSCRIPT_CACHE.get("timestamp", 0)) < 600
         
         if cache_video != self.meta.audio_path or not cache_fresh:
-            log.info("Transcript cache miss. Running Whisper over entire audio...")
+            log.info("Transcript cache miss or expired. Running Whisper over entire audio...")
             try:
                 model = _get_whisper_model("tiny.en")
                 segments_iter, _ = model.transcribe(self.meta.audio_path, language="en", word_timestamps=True)
@@ -609,7 +609,8 @@ class DialogueDetector:
                 "words": all_words
             }
         else:
-            log.info("Using cached ASR transcript. Skipping Whisper inference!")
+            log.info("Using cached ASR transcript. Resetting 10-minute TTL!")
+            _TRANSCRIPT_CACHE["timestamp"] = time.time()
 
         words = _TRANSCRIPT_CACHE["words"]
         target_words = self.target.split()
@@ -684,20 +685,30 @@ class DialogueDetector:
     def _build_ocr_cache(self) -> None:
         """Process the entire video at 1 fps in parallel chunks to build the OCR cache."""
         import concurrent.futures
+        import os
         
-        num_workers = 4
+        # Dynamically scale threads based on available CPU cores (cap at 12 to prevent disk/RAM thrashing)
+        num_workers = min(12, (os.cpu_count() or 4))
         chunk_duration = self.meta.duration / num_workers
         chunks = [(i * chunk_duration, (i + 1) * chunk_duration if i < num_workers - 1 else self.meta.duration) for i in range(num_workers)]
         
         all_words = []
         
-        def process_chunk(start_ts: float, end_ts: float) -> list:
+        def process_chunk(chunk_id: int, start_ts: float, end_ts: float) -> list:
             cap = cv2.VideoCapture(self.meta.video_path)
             chunk_results = []
             prev_hash = None
             ts = start_ts
+            total_time = end_ts - start_ts
+            last_log_ts = start_ts
             
             while ts <= end_ts:
+                # Progress logging every ~30 seconds of video time
+                if ts - last_log_ts >= 30:
+                    pct = ((ts - start_ts) / total_time) * 100
+                    log.info("OCR Thread %d: %.1f%% complete", chunk_id, pct)
+                    last_log_ts = ts
+
                 cap.set(cv2.CAP_PROP_POS_MSEC, ts * 1000)
                 ret, frame = cap.read()
                 if not ret:
@@ -706,7 +717,19 @@ class DialogueDetector:
                     
                 sub_region = self._crop_subtitle_region(frame)
                 gray = cv2.cvtColor(sub_region, cv2.COLOR_BGR2GRAY)
-                resized = cv2.resize(gray, (8, 8))
+                
+                # OPTIMIZATION: Binarize image to extract bright subtitle text.
+                # This ignores background action and only triggers hash changes if text changes.
+                _, thresh = cv2.threshold(gray, 200, 255, cv2.THRESH_BINARY)
+                
+                # Fast skip: If there are almost no bright pixels, there is no text. Skip OCR!
+                white_pixels = cv2.countNonZero(thresh)
+                if white_pixels < 50:
+                    ts += 1.0 / COARSE_FPS
+                    continue
+                
+                # Hash the binary text mask, not the raw image
+                resized = cv2.resize(thresh, (8, 8))
                 avg = resized.mean()
                 h = 0
                 for i, px in enumerate(resized.flatten()):
@@ -715,7 +738,7 @@ class DialogueDetector:
                         
                 if prev_hash is not None:
                     diff = bin(h ^ prev_hash).count('1')
-                    if diff < 5:
+                    if diff < 2:  # Stricter threshold on binary mask
                         ts += 1.0 / COARSE_FPS
                         continue
                 prev_hash = h
@@ -723,14 +746,16 @@ class DialogueDetector:
                 text = self.ocr.extract_text(sub_region)
                 if text.strip():
                     chunk_results.append({"word": text, "start": ts, "end": ts + 1.0 / COARSE_FPS})
+                
                 ts += 1.0 / COARSE_FPS
                 
             cap.release()
+            log.info("OCR Thread %d Finished.", chunk_id)
             return chunk_results
 
         log.info("Building full OCR cache across %d threads...", num_workers)
         with concurrent.futures.ThreadPoolExecutor(max_workers=num_workers) as executor:
-            futures = [executor.submit(process_chunk, c[0], c[1]) for c in chunks]
+            futures = [executor.submit(process_chunk, i, c[0], c[1]) for i, c in enumerate(chunks)]
             for future in concurrent.futures.as_completed(futures):
                 try:
                     all_words.extend(future.result())
@@ -765,10 +790,11 @@ class DialogueDetector:
         cache_fresh = (time.time() - _OCR_CACHE.get("timestamp", 0)) < 600
         
         if cache_video != self.meta.video_path or not cache_fresh:
-            log.info("OCR cache miss. Building full video OCR cache (This may take a minute on first run)...")
+            log.info("OCR cache miss or expired. Building full video OCR cache (This may take a minute on first run)...")
             self._build_ocr_cache()
         else:
-            log.info("Using cached OCR transcript. Skipping full video scan!")
+            log.info("Using cached OCR transcript. Resetting 10-minute TTL!")
+            _OCR_CACHE["timestamp"] = time.time()
             
         words = _OCR_CACHE.get("words", [])
         
