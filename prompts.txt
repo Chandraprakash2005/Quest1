@@ -112,3 +112,7 @@ Now, execute the generation of all 5 files sequentially.
 ## 5. Unified Smart Search UI
 **User Prompt:** "if the video and the audio is present then use that when the text alone is given , if a link is also geivn then load that"
 **Result:** Combined the frontend URL ingestion and Text Search into a single unified API endpoint. The backend automatically manages the cache, downloading a new video if a URL is provided, or skipping the download phase and immediately searching the cached video if only text is provided.
+
+## 6. Execution Mode Selector
+**User Prompt:** "now i need a a drop down i which i can select the asr , asr + ocr or ocr alone, as the name suggest add the features for the asr + ocr , make sure that it check the audio and then +2 or -2 sec and only go up to .o1 sec and not the 0.001 and f - f"
+**Result:** Added a frontend dropdown allowing users to select `ASR Only`, `ASR + OCR (Fine)`, and `OCR Only`. Backend dynamically routes the request. ASR+OCR mode anchors via audio, creates a ±2.0s search window, and performs an OCR binary search bounded at 0.01s granularity (skipping the heavy frame-by-frame search) to find the exact sub-second appearance.

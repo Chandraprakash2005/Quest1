@@ -32,6 +32,13 @@
             <h2>2. Search Target Phrase</h2>
             <div class="input-group">
                 <input type="text" id="search-text" placeholder="e.g. My mind rebels at stagnation" />
+            </div>
+            <div class="input-group" style="margin-top: 10px;">
+                <select id="search-mode" class="primary-btn" style="background: rgba(255, 255, 255, 0.1); color: white; border: 1px solid rgba(255, 255, 255, 0.2); padding: 0.8rem 1.5rem; border-radius: 8px; font-weight: 600; cursor: pointer;">
+                    <option value="asr_only" style="color: black;">ASR Only</option>
+                    <option value="asr_ocr" style="color: black;">ASR + OCR (Fine)</option>
+                    <option value="ocr_only" style="color: black;">OCR Only</option>
+                </select>
                 <button id="search-btn" class="primary-btn">Run AI Pipeline</button>
             </div>
             <div id="search-status" class="status-msg"></div>

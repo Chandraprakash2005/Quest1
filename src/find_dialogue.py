@@ -162,10 +162,15 @@ class DialogueDetector:
         target_dialogue: str,
         work_dir: str = ".",
         local_video: Optional[str] = None,
+        mode: str = "asr_only",
     ) -> None:
         self.url = url
         self.target = target_dialogue
+        self.mode = mode
         self.work_dir = Path(work_dir).resolve()
+        
+        # We cap at 0.01s granularity by default. We do NOT drop to 1/fps for ASR+OCR refinement.
+        self.fps_refinement = False if self.mode == "asr_ocr" else True
         self.work_dir.mkdir(parents=True, exist_ok=True)
         self.local_video = local_video
 
@@ -597,12 +602,17 @@ class DialogueDetector:
         log.info("  → best t=%.4fs  score=%.0f", t_b, s_b)
 
         # Pass C: frame-by-frame in ±0.01s
-        frame_step = 1.0 / self.meta.fps if self.meta.fps > 0 else 0.04
-        log.info("Pass C: frame-level (%.5fs) around %.4fs", frame_step, t_b)
-        s_c, t_c, txt_c = scan_range(
-            max(0, t_b - 0.05), min(self.meta.duration, t_b + 0.05), frame_step
-        )
-        log.info("  → FINAL t=%.5fs  score=%.0f", t_c, s_c)
+        if self.fps_refinement:
+            frame_step = 1.0 / self.meta.fps if self.meta.fps > 0 else 0.04
+            log.info("Pass C: frame-level (%.5fs) around %.4fs", frame_step, t_b)
+            s_c, t_c, txt_c = scan_range(
+                max(0, t_b - 0.05), min(self.meta.duration, t_b + 0.05), frame_step
+            )
+            log.info("  → FINAL t=%.5fs  score=%.0f", t_c, s_c)
+        else:
+            log.info("Pass C: Skipped (Not required for mode='%s')", self.mode)
+            frame_step = 0.01
+            t_c = t_b
 
         cap.release()
 
@@ -704,20 +714,36 @@ class DialogueDetector:
         log.info("Video URL: %s", self.url)
 
         self.phase0_ingest()
-        window = self.phase1_asr()
 
-        if self.asr_best is not None and self.asr_best.confidence >= 60:
-            log.info("ASR successfully matched target dialogue. Short-circuiting OCR for maximum speed.")
-            self.best = self.asr_best
-            self.phase4_output()
-            elapsed = time.time() - t0
-            log.info("Pipeline completed in %.1fs", elapsed)
-            return self.best
+        if self.mode == "ocr_only":
+            log.info("Mode 'ocr_only' selected. Skipping ASR.")
+            window = SearchWindow(0.0, self.meta.duration)
+        else:
+            window = self.phase1_asr()
 
-        t_coarse = self.phase2_coarse_ocr(window)
-
-        if t_coarse is not None:
-            self.phase3_refine(t_coarse)
+        if self.mode == "asr_only":
+            if self.asr_best is not None and self.asr_best.confidence >= 60:
+                log.info("Mode 'asr_only': ASR matched target dialogue. Short-circuiting OCR.")
+                self.best = self.asr_best
+            else:
+                log.info("Mode 'asr_only': ASR failed. Stopping pipeline as OCR is disabled.")
+                self.best.status = "NOT_FOUND"
+        elif self.mode == "asr_ocr":
+            if self.asr_best is not None and self.asr_best.confidence >= 60:
+                log.info("Mode 'asr_ocr': ASR anchored to %.2fs. Zooming into OCR refinement window.", self.asr_best.timestamp)
+                # Zoom into a -2.0 to +2.0 second window around the ASR timestamp
+                t_coarse = self.asr_best.timestamp
+                self.phase3_refine(t_coarse)
+            else:
+                log.warning("Mode 'asr_ocr': ASR failed. Falling back to full video OCR.")
+                t_coarse = self.phase2_coarse_ocr(window)
+                if t_coarse is not None:
+                    self.phase3_refine(t_coarse)
+        else:
+            # Fallback legacy logic
+            t_coarse = self.phase2_coarse_ocr(window)
+            if t_coarse is not None:
+                self.phase3_refine(t_coarse)
 
         self.phase4_output()
 

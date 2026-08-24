@@ -67,6 +67,7 @@ class DialogueAPIHandler(SimpleHTTPRequestHandler):
         elif self.path == '/api/search':
             target = req_body.get('target', '')
             url = req_body.get('url', '')
+            mode = req_body.get('mode', 'asr_only')
             
             if not target:
                 self._send_json(400, {"error": "No target provided"})
@@ -78,7 +79,7 @@ class DialogueAPIHandler(SimpleHTTPRequestHandler):
                     shutil.rmtree(ASSETS_DIR)
                 ASSETS_DIR.mkdir(parents=True, exist_ok=True)
                 
-                detector = DialogueDetector(url=url, target_dialogue="")
+                detector = DialogueDetector(url=url, target_dialogue="", mode=mode)
                 detector.phase0_ingest()
 
             video_path = ASSETS_DIR / "video" / "video.mp4"
@@ -91,7 +92,8 @@ class DialogueAPIHandler(SimpleHTTPRequestHandler):
                 detector = DialogueDetector(
                     url="", 
                     target_dialogue=target, 
-                    local_video=str(video_path)
+                    local_video=str(video_path),
+                    mode=mode
                 )
                 result = detector.run()
                 elapsed = time.time() - t0

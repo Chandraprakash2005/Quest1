@@ -59,12 +59,14 @@ searchBtn.addEventListener('click', async () => {
     resultSection.classList.add("hidden");
 
     try {
+        const searchMode = document.getElementById('search-mode').value;
         const response = await fetch('/api/search', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ 
                 target: targetText,
-                url: videoUrlInput.value.trim() 
+                url: videoUrlInput.value.trim(),
+                mode: searchMode
             })
         });
         
