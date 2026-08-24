@@ -2,10 +2,13 @@ import os
 import sys
 import json
 import time
+import logging
 import shutil
 from pathlib import Path
 from http.server import ThreadingHTTPServer, SimpleHTTPRequestHandler
 import urllib.parse
+
+log = logging.getLogger("DialogueServer")
 
 # Ensure src is in the python path
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
@@ -80,16 +83,20 @@ class DialogueAPIHandler(SimpleHTTPRequestHandler):
                 self._send_json(400, {"error": "No target provided"})
                 return
             
-            # If a new URL is provided, download it first!
-            if url:
-                ASSETS_DIR.mkdir(parents=True, exist_ok=True)
-                
-                detector = DialogueDetector(url=url, target_dialogue="", mode=mode)
-                detector.phase0_ingest()
-
             video_path = ASSETS_DIR / "video" / "video.mp4"
+            
+            # Only download if video doesn't exist yet
             if not video_path.exists():
-                self._send_json(400, {"error": "No video cached. Please provide a URL."})
+                if url:
+                    ASSETS_DIR.mkdir(parents=True, exist_ok=True)
+                    detector = DialogueDetector(url=url, target_dialogue="", mode=mode)
+                    detector.phase0_ingest()
+                else:
+                    self._send_json(400, {"error": "No video cached. Please load a video first."})
+                    return
+            
+            if not video_path.exists():
+                self._send_json(400, {"error": "Video download failed. Try again."})
                 return
                 
             try:
@@ -122,10 +129,13 @@ class DialogueAPIHandler(SimpleHTTPRequestHandler):
             self._send_json(404, {"error": "Not found"})
 
     def _send_json(self, status_code, data):
-        self.send_response(status_code)
-        self.send_header('Content-type', 'application/json')
-        self.end_headers()
-        self.wfile.write(json.dumps(data).encode('utf-8'))
+        try:
+            self.send_response(status_code)
+            self.send_header('Content-type', 'application/json')
+            self.end_headers()
+            self.wfile.write(json.dumps(data).encode('utf-8'))
+        except (ConnectionAbortedError, ConnectionResetError, BrokenPipeError):
+            log.warning("Client disconnected before response could be sent.")
 
 if __name__ == '__main__':
     print(f"Starting server on http://localhost:{PORT}")

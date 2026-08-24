@@ -16,6 +16,7 @@ env/
 .idea/
 *.swp
 *.swo
+src/work
 
 # OS
 .DS_Store
@@ -30,3 +31,7 @@ manifest.json
 
 # PaddleOCR model cache
 ~/.paddleocr/
+
+# Scratch and Test Scripts
+_*.py
+*test*.py

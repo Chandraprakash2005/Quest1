@@ -75,7 +75,21 @@ searchBtn.addEventListener('click', async () => {
             showStatus(searchStatus, "Pipeline completed in " + data.elapsed.toFixed(1) + "s", "success");
             
             // Populate results
-            resStatus.textContent = data.result.status;
+            let statusText = data.result.status;
+            if (statusText === "NOT_FOUND") {
+                statusText = "Not Found";
+            } else {
+                if (searchMode === "asr_only") {
+                    statusText = "ASR Match";
+                } else if (searchMode === "ocr_only") {
+                    statusText = "OCR Match";
+                } else if (searchMode === "asr_ocr") {
+                    statusText = "ASR + OCR Match";
+                } else {
+                    statusText = "Match Found";
+                }
+            }
+            resStatus.textContent = statusText;
             resStatus.className = "value " + (data.result.status === "NOT_FOUND" ? "error" : "highlight");
             
             resTime.textContent = data.result.timestamp;

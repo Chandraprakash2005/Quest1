@@ -22,6 +22,7 @@ import os
 import subprocess
 import sys
 import time
+import threading
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import List, Optional, Tuple
@@ -30,19 +31,38 @@ import cv2
 import numpy as np
 from rapidfuzz import fuzz
 
+# ── Inject NVIDIA CUDA DLLs into PATH at module-load time (before ctranslate2 / faster_whisper) ──
+_venv_dir = Path(sys.executable).parent.parent
+_nvidia_base = _venv_dir / "Lib" / "site-packages" / "nvidia"
+if _nvidia_base.exists():
+    for _pkg_dir in _nvidia_base.iterdir():
+        if _pkg_dir.is_dir():
+            for _sub in ["bin", "lib"]:
+                _dll_path = _pkg_dir / _sub
+                if _dll_path.exists():
+                    os.environ["PATH"] = str(_dll_path) + os.pathsep + os.environ["PATH"]
+                    if hasattr(os, "add_dll_directory"):
+                        os.add_dll_directory(str(_dll_path))
+
 # ---------------------------------------------------------------------------
 # Constants
 # ---------------------------------------------------------------------------
 DEFAULT_URL = "https://ok.ru/video/248244667877"
 DEFAULT_DIALOGUE = "My mind rebels at stagnation"
 ASR_WINDOW_PAD = 2.0          # seconds before/after ASR hit
-COARSE_FPS = 1.0              # 1 frame per second for coarse scan
+COARSE_FPS = 3.0              # 3 frames per second for coarse scan (catches short subtitles)
 CONFIDENCE_OK = 85
 CONFIDENCE_LOW = 70
 REFINE_PASS_A = 0.1           # seconds granularity
 REFINE_PASS_B = 0.01
 OUTPUT_FRAME = "output_frame.png"
 OUTPUT_MANIFEST = "manifest.json"
+
+# ---------------------------------------------------------------------------
+# Suppress noisy PyTorch warnings (pin_memory from EasyOCR internals)
+# ---------------------------------------------------------------------------
+import warnings
+warnings.filterwarnings("ignore", message=".*pin_memory.*")
 
 # ---------------------------------------------------------------------------
 # Logging setup
@@ -89,11 +109,28 @@ class SearchWindow:
 # Global caches for heavy models to drastically improve server speed
 _EASYOCR_READER = None
 _WHISPER_MODEL = None
+_GPU_LOCK = threading.Lock()  # Serialize GPU access across concurrent requests
+
+def _get_whisper_model(model_size: str = "tiny.en"):
+    """Returns a cached Whisper model, preferring GPU."""
+    global _WHISPER_MODEL
+    if _WHISPER_MODEL is not None:
+        return _WHISPER_MODEL
+    
+    from faster_whisper import WhisperModel
+    try:
+        _WHISPER_MODEL = WhisperModel(model_size, device="cuda", compute_type="float16")
+        log.info("faster-whisper '%s' loaded on CUDA GPU!", model_size)
+    except Exception as e:
+        log.warning("GPU load failed (%s). Falling back to CPU.", str(e)[:60])
+        _WHISPER_MODEL = WhisperModel(model_size, device="cpu", compute_type="int8")
+    return _WHISPER_MODEL
 
 _TRANSCRIPT_CACHE = {
-    "url": "",
+    "video_path": "",
     "timestamp": 0,
-    "words": []
+    "words": [],
+    "segments": []
 }
 
 class OCREngine:
@@ -123,29 +160,32 @@ class OCREngine:
             raise RuntimeError("No OCR backend available. Install paddleocr or easyocr.")
 
     def extract_text(self, image: np.ndarray) -> str:
-        """Return all detected text from an image as a single string."""
+        """Return all detected text from an image as a single string.
+        Thread-safe: acquires GPU lock to prevent concurrent GPU contention.
+        """
         gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY) if len(image.shape) == 3 else image
 
-        if self._backend == "paddleocr":
-            try:
-                results = self._engine.ocr(image)
-                texts: List[str] = []
-                if results and results[0]:
-                    for line in results[0]:
-                        texts.append(line[1][0])
-                return " ".join(texts)
-            except Exception as exc:
-                log.warning("PaddleOCR crashed during inference (%s). Falling back to EasyOCR permanently.", type(exc).__name__)
-                import easyocr
-                os.environ["PYTHONIOENCODING"] = "utf-8"
-                self._engine = easyocr.Reader(["en"], gpu=False, verbose=False)
-                self._backend = "easyocr"
-                log.info("OCR backend switched to EasyOCR")
-                # Fall through to the easyocr block below
+        with _GPU_LOCK:
+            if self._backend == "paddleocr":
+                try:
+                    results = self._engine.ocr(image)
+                    texts: List[str] = []
+                    if results and results[0]:
+                        for line in results[0]:
+                            texts.append(line[1][0])
+                    return " ".join(texts)
+                except Exception as exc:
+                    log.warning("PaddleOCR crashed during inference (%s). Falling back to EasyOCR permanently.", type(exc).__name__)
+                    import easyocr
+                    os.environ["PYTHONIOENCODING"] = "utf-8"
+                    self._engine = easyocr.Reader(["en"], gpu=False, verbose=False)
+                    self._backend = "easyocr"
+                    log.info("OCR backend switched to EasyOCR")
+                    # Fall through to the easyocr block below
 
-        if self._backend == "easyocr":
-            results = self._engine.readtext(gray)
-            return " ".join([r[1] for r in results])
+            if self._backend == "easyocr":
+                results = self._engine.readtext(gray)
+                return " ".join([r[1] for r in results])
 
         return ""
 
@@ -174,6 +214,29 @@ class DialogueDetector:
         self.ocr = OCREngine()
         self.best: MatchResult = MatchResult()
         self.asr_best: Optional[MatchResult] = None
+        self._prev_sub_hash: Optional[int] = None  # for frame deduplication
+
+    @staticmethod
+    def _crop_subtitle_region(frame: np.ndarray) -> np.ndarray:
+        """Crop the bottom 30% of the frame where subtitles typically appear.
+        This reduces OCR input size by ~70% and dramatically speeds up inference.
+        """
+        h = frame.shape[0]
+        top = int(h * 0.70)
+        return frame[top:h, :]
+
+    def _is_duplicate_frame(self, sub_region: np.ndarray) -> bool:
+        """Check if the subtitle region is visually identical to the previous one.
+        Uses a fast perceptual hash to skip redundant OCR calls.
+        """
+        # Resize to tiny thumbnail and hash
+        small = cv2.resize(sub_region, (64, 16), interpolation=cv2.INTER_AREA)
+        gray = cv2.cvtColor(small, cv2.COLOR_BGR2GRAY) if len(small.shape) == 3 else small
+        h = hash(gray.tobytes())
+        if h == self._prev_sub_hash:
+            return True
+        self._prev_sub_hash = h
+        return False
         
     def _clean(self, text: str) -> str:
         """Strips punctuation to extract raw words for comparison."""
@@ -496,48 +559,96 @@ class DialogueDetector:
         log.info("Audio ready: %s", audio_path)
 
     # ---- Phase 1 ----
+    def _get_sentence_context(self, words: list, match_start_idx: int, match_end_idx: int, max_context: int = 12) -> str:
+        """Get the full surrounding sentence context for a matched word span.
+        
+        Looks outward from the match indices to find sentence boundaries
+        (pauses > 0.5s between words) or up to max_context words on each side.
+        """
+        # Expand left
+        left = match_start_idx
+        for k in range(match_start_idx - 1, max(match_start_idx - max_context, -1), -1):
+            if k < 0:
+                break
+            gap = words[k + 1]["start"] - words[k]["end"]
+            if gap > 0.5:
+                break  # sentence boundary
+            left = k
+        
+        # Expand right
+        right = match_end_idx
+        for k in range(match_end_idx + 1, min(match_end_idx + max_context, len(words))):
+            gap = words[k]["start"] - words[k - 1]["end"]
+            if gap > 0.5:
+                break  # sentence boundary
+            right = k
+        
+        context_words = words[left:right + 1]
+        return " ".join([w["word"] for w in context_words]).strip()
+
+    def _exact_word_match(self, target_words: list, transcript_words: list) -> tuple:
+        """Find the target words as exact whole words in the transcript.
+        
+        Returns (score, time, matched_text, match_start_idx, match_end_idx)
+        or (0, 0, "", -1, -1) if not found.
+        """
+        import re
+        target_clean = [re.sub(r'[^\w]', '', w).lower() for w in target_words if w.strip()]
+        n_target = len(target_clean)
+        
+        if n_target == 0:
+            return (0, 0.0, "", -1, -1)
+        
+        best_score = 0
+        best_time = 0.0
+        best_text = ""
+        best_start = -1
+        best_end = -1
+        
+        for i in range(len(transcript_words) - n_target + 1):
+            window = transcript_words[i:i + n_target]
+            window_clean = [re.sub(r'[^\w]', '', w["word"]).lower() for w in window]
+            
+            # Count exact word matches
+            matches = sum(1 for t, w in zip(target_clean, window_clean) if t == w)
+            score = (matches / n_target) * 100
+            
+            if score > best_score:
+                best_score = score
+                best_text = " ".join([w["word"] for w in window]).strip()
+                best_time = (window[0]["start"] + window[-1]["end"]) / 2.0
+                best_start = i
+                best_end = i + n_target - 1
+                
+                if best_score >= 100:
+                    break
+        
+        return (best_score, best_time, best_text, best_start, best_end)
+
     def phase1_asr(self) -> SearchWindow:
         """Run ASR on audio and fuzzy-match the target dialogue."""
         log.info("=== Phase 1: ASR Accelerator ===")
 
         global _TRANSCRIPT_CACHE
-        if _TRANSCRIPT_CACHE.get("url") != self.url or (time.time() - _TRANSCRIPT_CACHE.get("timestamp", 0)) > 600:
-            log.info("Transcript cache empty or expired. Running Whisper over entire audio...")
+        cache_video = _TRANSCRIPT_CACHE.get("video_path", "")
+        cache_fresh = (time.time() - _TRANSCRIPT_CACHE.get("timestamp", 0)) < 600
+        
+        if cache_video != self.meta.audio_path or not cache_fresh:
+            log.info("Transcript cache miss. Running Whisper over entire audio...")
             try:
-                global _WHISPER_MODEL
-                from faster_whisper import WhisperModel
-                if _WHISPER_MODEL is None:
-                    log.info("Loading faster-whisper into memory (this only happens once)...")
-                    try:
-                        # Dynamically inject pip-installed NVIDIA CUDA DLLs into PATH
-                        import os, sys
-                        from pathlib import Path
-                        venv_dir = Path(sys.executable).parent.parent
-                        for pkg in ["cublas", "cudnn", "cuda_nvrtc", "cuda_runtime"]:
-                            bin_path = venv_dir / "Lib" / "site-packages" / "nvidia" / pkg / "bin"
-                            if bin_path.exists():
-                                os.environ["PATH"] = str(bin_path) + os.pathsep + os.environ["PATH"]
-                                if hasattr(os, "add_dll_directory"):
-                                    os.add_dll_directory(str(bin_path))
-
-                        from faster_whisper import WhisperModel
-                        _WHISPER_MODEL = WhisperModel("tiny.en", device="cuda", compute_type="float16")
-                        log.info("faster-whisper (tiny.en) successfully loaded on CUDA GPU.")
-                    except Exception as e:
-                        log.warning("GPU load failed. Falling back to CPU: %s", str(e)[:40])
-                        from faster_whisper import WhisperModel
-                        _WHISPER_MODEL = WhisperModel("tiny.en", device="cpu", compute_type="int8")
-                model = _WHISPER_MODEL
+                model = _get_whisper_model("tiny.en")
                 segments_iter, _ = model.transcribe(self.meta.audio_path, language="en", word_timestamps=True)
             except Exception as exc:
-                log.warning("faster-whisper failed (%s), trying openai-whisper...", exc)
+                log.warning("GPU inference failed (%s). Falling back to CPU.", str(exc)[:50])
+                global _WHISPER_MODEL
+                _WHISPER_MODEL = None
+                from faster_whisper import WhisperModel
+                model = WhisperModel("tiny.en", device="cpu", compute_type="int8")
+                _WHISPER_MODEL = model
                 try:
-                    import whisper
-                    model = whisper.load_model("tiny.en")
-                    result = model.transcribe(self.meta.audio_path, language="en", word_timestamps=True)
-                    segments_iter = result.get("segments", [])
+                    segments_iter, _ = model.transcribe(self.meta.audio_path, language="en", word_timestamps=True)
                 except Exception as exc2:
-                    log.warning("Whisper also failed (%s). Falling back to full scan.", exc2)
+                    log.warning("Whisper CPU fallback also failed (%s). Falling back to full scan.", str(exc2)[:50])
                     return SearchWindow(0.0, self.meta.duration)
 
             all_words = []
@@ -550,33 +661,59 @@ class DialogueDetector:
                     all_words.append({"word": w_text, "start": w_start, "end": w_end})
             
             _TRANSCRIPT_CACHE = {
-                "url": self.url,
+                "video_path": self.meta.audio_path,
                 "timestamp": time.time(),
                 "words": all_words
             }
         else:
             log.info("Using cached ASR transcript. Skipping Whisper inference!")
 
+        words = _TRANSCRIPT_CACHE["words"]
+        target_words = self.target.split()
+        n_target_words = len(target_words)
+        
         best_score = 0.0
         best_time = 0.0
         best_text = ""
 
-        # Sliding window over the entire flat transcript to avoid segment boundary cutoffs
-        words = _TRANSCRIPT_CACHE["words"]
-        for i in range(len(words)):
-            for j in range(i + 1, min(i + 8, len(words) + 1)):
-                window = words[i:j]
-                w_text = " ".join([w["word"] for w in window]).strip()
-                w_score = fuzz.ratio(self.target.lower(), w_text.lower())
-                
-                if w_score > best_score:
-                    best_score = w_score
-                    best_text = w_text
-                    best_time = (window[0]["start"] + window[-1]["end"]) / 2.0
+        # ── Strategy 1: Exact whole-word matching (prevents false positives on short inputs) ──
+        log.info("ASR Strategy 1: Exact whole-word matching for '%s' (%d words)", self.target, n_target_words)
+        exact_score, exact_time, exact_text, m_start, m_end = self._exact_word_match(target_words, words)
+        
+        if exact_score >= 100:
+            # Perfect exact match — get full sentence context
+            context_text = self._get_sentence_context(words, m_start, m_end)
+            log.info("Exact match found: score=%.0f at t=%.2fs text='%s'", exact_score, exact_time, context_text[:80])
+            best_score = exact_score
+            best_time = exact_time
+            best_text = context_text
+        elif n_target_words >= 3:
+            # ── Strategy 2: Fuzzy matching only for longer phrases (≥3 words) ──
+            log.info("ASR Strategy 2: Fuzzy sliding window (target has %d words)", n_target_words)
+            for i in range(len(words)):
+                for j in range(i + 1, min(i + n_target_words + 3, len(words) + 1)):
+                    window = words[i:j]
+                    w_text = " ".join([w["word"] for w in window]).strip()
+                    w_score = fuzz.ratio(self.target.lower(), self._clean(w_text).lower())
                     
-            if best_score >= 85:
-                log.info("Target spoken text found in cache! Halting search.")
-                break
+                    if w_score > best_score:
+                        best_score = w_score
+                        best_text = self._get_sentence_context(words, i, j - 1)
+                        best_time = (window[0]["start"] + window[-1]["end"]) / 2.0
+                        
+                if best_score >= 85:
+                    log.info("Fuzzy match found! Halting search.")
+                    break
+        else:
+            # Short target (1-2 words) — only accept exact matches
+            if exact_score >= 50:  # At least half the words matched exactly
+                context_text = self._get_sentence_context(words, m_start, m_end) if m_start >= 0 else exact_text
+                best_score = exact_score
+                best_time = exact_time
+                best_text = context_text
+                log.info("Partial exact match for short target: score=%.0f at t=%.2fs", exact_score, exact_time)
+            else:
+                log.info("No exact match for short target '%s' (best_exact=%.0f). Rejecting fuzzy matches to avoid false positives.", self.target, exact_score)
 
         if best_score > 0:
             self.asr_best = MatchResult(
@@ -586,6 +723,7 @@ class DialogueDetector:
                 confidence=best_score,
                 status="ASR_ONLY_MATCH"
             )
+            log.info("ASR best: score=%.0f  time=%.2fs  text='%s'", best_score, best_time, best_text[:100])
 
         if best_score >= 60:
             win_start = max(0.0, best_time - ASR_WINDOW_PAD)
@@ -601,7 +739,9 @@ class DialogueDetector:
 
     # ---- Phase 2 ----
     def phase2_coarse_ocr(self, window: SearchWindow) -> Optional[float]:
-        """Sample at 1 fps within the window and OCR each frame."""
+        """Sample at 1 fps within the window and OCR each frame.
+        Uses subtitle-region cropping and frame deduplication for speed.
+        """
         log.info("=== Phase 2: Coarse Sampled OCR (1 fps) ===")
         log.info("Scanning window [%.2f, %.2f] ...", window.start, window.end)
 
@@ -613,6 +753,8 @@ class DialogueDetector:
         best_score = 0.0
         best_ts = 0.0
         best_text = ""
+        self._prev_sub_hash = None  # reset dedup for this scan
+        skipped = 0
 
         ts = window.start
         while ts <= window.end:
@@ -622,23 +764,40 @@ class DialogueDetector:
                 ts += 1.0 / COARSE_FPS
                 continue
 
-            text = self.ocr.extract_text(frame)
+            # Crop to subtitle region (bottom 30%) for faster OCR
+            sub_region = self._crop_subtitle_region(frame)
+            
+            # Skip if subtitle region hasn't changed
+            if self._is_duplicate_frame(sub_region):
+                skipped += 1
+                ts += 1.0 / COARSE_FPS
+                continue
+
+            text = self.ocr.extract_text(sub_region)
             score = fuzz.token_set_ratio(self._clean(self.target), self._clean(text))
 
-            if score > best_score:
+            if score >= CONFIDENCE_LOW:
+                # Halt immediately to preserve the EARLIEST acceptable occurrence!
+                # If we keep scanning for a higher score, we might skip the first occurrence
+                # and lock onto a later occurrence of the same word (e.g., at 4.0s instead of 1.3s).
                 best_score = score
                 best_ts = ts
                 best_text = text
                 log.info("  t=%.2fs  score=%.0f  text='%s'", ts, score, text[:80])
+                log.info("Target text found! Halting coarse scan early to preserve earliest timestamp.")
+                break
                 
-                # Short-circuit coarse scan if we find a confident match
-                if best_score >= CONFIDENCE_OK:
-                    log.info("Target text found! Halting coarse scan early.")
-                    break
+            elif score > best_score:
+                best_score = score
+                best_ts = ts
+                best_text = text
+                log.info("  t=%.2fs  score=%.0f  text='%s'", ts, score, text[:80])
 
             ts += 1.0 / COARSE_FPS
 
         cap.release()
+        if skipped > 0:
+            log.info("Skipped %d duplicate frames (no subtitle change)", skipped)
 
         if best_score >= CONFIDENCE_LOW:
             status = "OK" if best_score >= CONFIDENCE_OK else "LOW_CONFIDENCE"
@@ -669,13 +828,19 @@ class DialogueDetector:
                 if not ret:
                     t += step
                     continue
-                text = self.ocr.extract_text(frame)
+                sub_region = self._crop_subtitle_region(frame)
+                text = self.ocr.extract_text(sub_region)
                 score = fuzz.token_set_ratio(self._clean(self.target), self._clean(text))
+                
+                # If we hit an acceptable score, return IMMEDIATELY.
+                # This guarantees we get the earliest possible start frame,
+                # rather than moving the timestamp forward to a later frame with a higher score.
+                if score >= CONFIDENCE_LOW:
+                    log.info("    Earliest acceptable frame found: score=%.0f at t=%.3fs", score, t)
+                    return score, t, text
+                    
                 if score > best_s:
                     best_s, best_t, best_txt = score, t, text
-                    # Early stopping: if we hit a highly confident match, we don't need to check further in this window!
-                    if best_s >= CONFIDENCE_OK:
-                        break
                 t += step
             return best_s, best_t, best_txt
 
@@ -725,9 +890,18 @@ class DialogueDetector:
         else:
             log.info("Pass C: Skipped (Not required for mode='%s')", self.mode)
             frame_step = 0.01
-            t_c = t_b
+            s_c, t_c, txt_c = s_b, t_b, txt_b
 
         cap.release()
+
+        # Save the best refinement result BEFORE the backward walk
+        # so _find_first_appearance has valid fallback values
+        best_refine_score = s_c if self.fps_refinement or s_c > 0 else s_b
+        best_refine_t = t_c
+        best_refine_txt = txt_c if txt_c else txt_b
+        if best_refine_score > 0:
+            status = "OK" if best_refine_score >= CONFIDENCE_OK else "LOW_CONFIDENCE"
+            self.best = MatchResult(best_refine_t, int(best_refine_t * self.meta.fps), best_refine_txt, best_refine_score, status)
 
         # Find the *first* frame in the Pass C neighbourhood that meets threshold
         self._find_first_appearance(t_c, frame_step)
@@ -735,7 +909,10 @@ class DialogueDetector:
         return self.best.timestamp
 
     def _find_first_appearance(self, t_center: float, frame_step: float) -> None:
-        """Walk backwards from t_center to find the earliest frame with a match."""
+        """Walk backwards from t_center to find the earliest frame with a match.
+        Uses 0.1s steps (max 5 steps) to avoid excessive OCR calls.
+        """
+        log.info("=== Finding first appearance (walking backwards from t=%.3fs) ===", t_center)
         cap = cv2.VideoCapture(self.meta.video_path)
         if not cap.isOpened():
             return
@@ -744,19 +921,27 @@ class DialogueDetector:
         earliest_txt = self.best.extracted_text
         earliest_score = self.best.confidence
 
-        t = t_center
-        while t >= max(0, t_center - 1.0):
+        # Use coarser step for backward walk — 0.1s minimum, max 5 steps back (0.5s)
+        back_step = max(frame_step, 0.1)
+        max_back = 0.5
+        steps = 0
+
+        t = t_center - back_step
+        while t >= max(0, t_center - max_back) and steps < 5:
             cap.set(cv2.CAP_PROP_POS_MSEC, t * 1000)
             ret, frame = cap.read()
             if not ret:
                 break
-            text = self.ocr.extract_text(frame)
+            sub_region = self._crop_subtitle_region(frame)
+            text = self.ocr.extract_text(sub_region)
             score = fuzz.token_set_ratio(self._clean(self.target), self._clean(text))
+            log.info("  backward t=%.3fs  score=%.0f", t, score)
             if score >= CONFIDENCE_LOW:
                 earliest_t = t
                 earliest_txt = text
                 earliest_score = score
-                t -= frame_step
+                t -= back_step
+                steps += 1
             else:
                 break
 
