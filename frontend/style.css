@@ -259,6 +259,27 @@ select.input-field option {
     border-radius: 8px;
     border: 1px solid rgba(0, 229, 255, 0.2);
     overflow: hidden;
+    position: relative;
+}
+
+.method-badge {
+    position: absolute;
+    top: 12px;
+    left: 12px;
+    background: rgba(0, 25, 45, 0.85);
+    border: 1px solid var(--neon-blue);
+    padding: 6px 8px;
+    border-radius: 6px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 4px;
+    box-shadow: 0 0 10px rgba(0, 229, 255, 0.2);
+    z-index: 10;
+    backdrop-filter: blur(4px);
+}
+.method-badge svg {
+    color: var(--neon-blue);
 }
 
 .history-image-col img {

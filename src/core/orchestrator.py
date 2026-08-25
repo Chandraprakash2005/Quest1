@@ -56,9 +56,7 @@ class DialogueDetector:
                 t_coarse = self.asr_best.timestamp
                 self.best = phase3_refine(self.meta, self.ocr, t_coarse, self.target, self.mode, self.best)
                 
-                if self.best.status != "NOT_FOUND":
-                    self.best.extracted_text = self.asr_best.extracted_text
-                else:
+                if self.best.status == "NOT_FOUND":
                     log.warning("OCR refinement failed to find subtitles. Falling back to ASR anchor.")
                     self.best = self.asr_best
             else:

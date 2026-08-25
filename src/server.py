@@ -147,6 +147,7 @@ class DialogueAPIHandler(SimpleHTTPRequestHandler):
                     
                     # Inject target_text so history knows what we searched for
                     manifest_data["target_text"] = target
+                    manifest_data["mode"] = mode
                     with open(manifest_path, 'w') as f:
                         json.dump(manifest_data, f, indent=2)
                 

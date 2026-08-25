@@ -92,7 +92,7 @@ def phase1_asr(meta: VideoMeta, target: str) -> tuple:
     if not all_words:
         log.info("ASR cache miss. Running Whisper over entire audio...")
         try:
-            model = get_whisper_model("tiny.en")
+            model = get_whisper_model("base.en")
             segments_iter, _ = model.transcribe(meta.audio_path, language="en", word_timestamps=True)
             
             all_words = []

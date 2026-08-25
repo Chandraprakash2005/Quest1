@@ -215,3 +215,11 @@ Do not use the 10-minute TTL for persistent OCR cache invalidation.
 ## 21. High-Performance OCR Pipeline Optimization
 **User Prompt:** 'i need the ocr to work faster for the longer duration video what i can do... Blank Frame Binarization Skipping... Scale Down Resolution... this too'
 **Result:** Drastically optimized the OCR pipeline for long-duration videos by implementing three targeted architectural improvements: 1) Reduced COARSE_FPS from 3.0 to 1.0, mathematically reducing GPU workload by 66%. 2) Implemented cv2.threshold Blank Frame Binarization to strictly skip frames lacking white pixels, bypassing EasyOCR entirely during silent/text-less scenes. 3) Added a resolution scale-down check in ocr_engine.py that utilizes cv2.resize to shrink 1080p/4K subtitle crops by 50% prior to inference, significantly accelerating matrix processing.
+
+## 22. Upgrade faster-whisper Model
+**User Prompt:** "Modify ONLY the ASR model in the existing Quest1 repository. I want to replace the current faster-whisper `tiny.en` model with: faster-whisper `base.en`"
+**Result:** Updated the global `get_whisper_model` parameter and `asr_phase.py` instantiation to use the `base.en` model instead of `tiny.en`, improving transcription accuracy while maintaining the core ASR architecture.
+
+## 23. Extraction Overhaul & Dynamic UI Method Badging
+**User Prompt:** "keep 3 symbol in the picture top left map the image for 3 methods if it is done by voice only choose that logo and give like this... for the asr + ocr use the ocr text for the extract dialog... add the logo in this layout last by adj the rest of the 3... use this fof the audio <svg...>"
+**Result:** Executed a full UI metrics restructuring. The method execution mode (asr_only, ocr_only, asr_ocr) is now injected dynamically into the backend JSON manifest. The frontend was updated to construct a brand new 4th 'METHOD' metric box inline with the Timestamp, Frame, and Words grid, utilizing custom mapped SVGs (including a bespoke 'audio-lines' waveform) and Text labels (VOICE, VISUAL, DUAL) to clearly display the underlying detection pathway. Additionally, patched the `orchestrator.py` logic to preserve and output the exact OCR bounding box text during the ASR+OCR refinement fallback rather than overwriting it with the fuzzy audio anchor.
