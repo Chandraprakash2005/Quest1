@@ -69,12 +69,28 @@ def exact_word_match(target_words: list, transcript_words: list) -> tuple:
 def phase1_asr(meta: VideoMeta, target: str) -> tuple:
     log.info("=== Phase 1: ASR Accelerator ===")
 
-    global _TRANSCRIPT_CACHE
-    cache_video = _TRANSCRIPT_CACHE.get("video_path", "")
-    cache_fresh = (time.time() - _TRANSCRIPT_CACHE.get("timestamp", 0)) < 600
+    import json
+    from pathlib import Path
     
-    if cache_video != meta.audio_path or not cache_fresh:
-        log.info("Transcript cache miss or expired. Running Whisper over entire audio...")
+    video_id = Path(meta.video_path).stem if meta.video_path else "unknown_video"
+    cache_dir = Path("output/asr_cache") / video_id
+    cache_dir.mkdir(parents=True, exist_ok=True)
+    
+    cache_file = cache_dir / "samples.json"
+    
+    if cache_file.exists():
+        log.info("Found persistent ASR cache on disk. Loading...")
+        try:
+            with open(cache_file, "r") as f:
+                all_words = json.load(f)
+        except Exception as e:
+            log.warning("Failed to load ASR cache (%s). Will re-run.", str(e))
+            all_words = None
+    else:
+        all_words = None
+
+    if not all_words:
+        log.info("ASR cache miss. Running Whisper over entire audio...")
         try:
             model = get_whisper_model("tiny.en")
             segments_iter, _ = model.transcribe(meta.audio_path, language="en", word_timestamps=True)
@@ -88,20 +104,15 @@ def phase1_asr(meta: VideoMeta, target: str) -> tuple:
                     w_end = w.end if hasattr(w, "end") else w.get("end", 0)
                     all_words.append({"word": w_text, "start": w_start, "end": w_end})
                     
+            with open(cache_file, "w") as f:
+                json.dump(all_words, f, indent=2)
+            log.info("Saved ASR cache to disk: %s", cache_file)
+                
         except Exception as exc:
             log.warning("ASR inference failed (%s). Falling back to full scan.", str(exc)[:50])
             return SearchWindow(0.0, meta.duration), None
 
-        _TRANSCRIPT_CACHE = {
-            "video_path": meta.audio_path,
-            "timestamp": time.time(),
-            "words": all_words
-        }
-    else:
-        log.info("Using cached ASR transcript. Resetting 10-minute TTL!")
-        _TRANSCRIPT_CACHE["timestamp"] = time.time()
-
-    words = _TRANSCRIPT_CACHE["words"]
+    words = all_words
     target_words = target.split()
     n_target_words = len(target_words)
     

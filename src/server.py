@@ -31,9 +31,9 @@ class DialogueAPIHandler(SimpleHTTPRequestHandler):
             session_id = params.get("id", [""])[0]
             
             if session_id:
-                frame_path = OUTPUT_DIR / f"output_frame_{session_id}.png"
+                frame_path = OUTPUT_DIR / "outimage" / f"output_frame_{session_id}.png"
             else:
-                frame_path = OUTPUT_DIR / "output_frame.png"
+                frame_path = OUTPUT_DIR / "outimage" / "output_frame.png"
                 
             if frame_path.exists():
                 self.send_response(200)
@@ -47,8 +47,9 @@ class DialogueAPIHandler(SimpleHTTPRequestHandler):
             
         if self.path == "/api/history":
             history = []
-            if OUTPUT_DIR.exists():
-                for manifest_file in sorted(OUTPUT_DIR.glob("manifest_*.json"), key=os.path.getmtime, reverse=True):
+            metadata_dir = OUTPUT_DIR / "output_metadata"
+            if metadata_dir.exists():
+                for manifest_file in sorted(metadata_dir.glob("manifest_*.json"), key=os.path.getmtime, reverse=True):
                     try:
                         with open(manifest_file, 'r') as f:
                             data = json.load(f)
@@ -136,7 +137,9 @@ class DialogueAPIHandler(SimpleHTTPRequestHandler):
                     return
                 
                 # Return the result and manifest contents
-                manifest_path = getattr(detector, 'manifest_path', OUTPUT_DIR / f"manifest_{detector.session_id}.json")
+                metadata_dir = OUTPUT_DIR / "output_metadata"
+                metadata_dir.mkdir(parents=True, exist_ok=True)
+                manifest_path = getattr(detector, 'manifest_path', metadata_dir / f"manifest_{detector.session_id}.json")
                 manifest_data = {}
                 if manifest_path.exists():
                     with open(manifest_path, 'r') as f:

@@ -7,10 +7,14 @@ from src.core.models import VideoMeta, MatchResult
 def phase4_output(meta: VideoMeta, best: MatchResult, session_id: str, work_dir: Path) -> None:
     log.info("=== Phase 4: Output Generation ===")
 
-    output_dir = work_dir
-    output_dir.mkdir(parents=True, exist_ok=True)
-    frame_path = output_dir / f"output_frame_{session_id}.png"
-    manifest_path = output_dir / f"manifest_{session_id}.json"
+    metadata_dir = work_dir / "output_metadata"
+    image_dir = work_dir / "outimage"
+    
+    metadata_dir.mkdir(parents=True, exist_ok=True)
+    image_dir.mkdir(parents=True, exist_ok=True)
+    
+    frame_path = image_dir / f"output_frame_{session_id}.png"
+    manifest_path = metadata_dir / f"manifest_{session_id}.json"
 
     if best.status == "NOT_FOUND":
         log.warning("No match found. Writing empty manifest.")
