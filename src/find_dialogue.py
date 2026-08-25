@@ -202,7 +202,7 @@ class OCREngine:
 class DialogueDetector:
     """Orchestrates the full coarse-to-fine detection pipeline."""
 
-    def __init__(self, url: str, target_dialogue: str, work_dir: str = "output", local_video: str = "", mode: str = "asr_only") -> None:
+    def __init__(self, url: str, target_dialogue: str, work_dir: str = "output", local_video: str = "", mode: str = "asr_only", assets_dir: str = r"C:\Users\dayan\Documents\Quest1\assets") -> None:
         import re
         import uuid
         self.session_id = uuid.uuid4().hex
@@ -215,6 +215,7 @@ class DialogueDetector:
         self.fps_refinement = False
         self.work_dir.mkdir(parents=True, exist_ok=True)
         self.local_video = local_video
+        self.assets_dir = Path(assets_dir).resolve()
         
         self.meta = VideoMeta()
         self.ocr = OCREngine()
@@ -256,7 +257,7 @@ class DialogueDetector:
         """
         import re
         import requests as req
-        video_dir = Path("assets/video")
+        video_dir = self.assets_dir / "video"
         video_dir.mkdir(parents=True, exist_ok=True)
 
         # ── Strategy 1: Direct extraction from ok.ru desktop page ──
@@ -421,8 +422,8 @@ class DialogueDetector:
         """Download video and extract metadata + audio."""
         log.info("=== Phase 0: Ingestion & Probing ===")
 
-        video_dir = Path("assets/video")
-        audio_dir = Path("assets/audio")
+        video_dir = self.assets_dir / "video"
+        audio_dir = self.assets_dir / "audio"
         video_dir.mkdir(parents=True, exist_ok=True)
         audio_dir.mkdir(parents=True, exist_ok=True)
 

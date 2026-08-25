@@ -4,84 +4,131 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Video Dialogue Detector</title>
-    <link rel="stylesheet" href="style.css">
+    <link rel="stylesheet" href="style.css?v=8">
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
 </head>
 <body>
-    <div class="background-blobs">
-        <div class="blob blob-1"></div>
-        <div class="blob blob-2"></div>
-    </div>
-
-    <main class="container">
-        <header>
-            <h1>AI Dialogue <span>Detector</span></h1>
-            <p>Pinpoint exact video frames using multi-modal ASR & OCR</p>
-        </header>
-
-        <section class="card url-section">
-            <h2>1. Load Video</h2>
-            <div class="input-group" style="margin-bottom: 10px;">
-                <select id="video-select" class="primary-btn" style="background: rgba(255, 255, 255, 0.1); color: white; border: 1px solid rgba(255, 255, 255, 0.2); padding: 0.8rem; border-radius: 8px; width: 100%; cursor: pointer;">
-                    <option value="" style="color: black;">Select a cached video...</option>
-                </select>
-            </div>
-            <p style="text-align: center; color: rgba(255, 255, 255, 0.6); margin: 5px 0;">OR</p>
-            <div class="input-group">
-                <input type="text" id="video-url" placeholder="Paste YouTube or OK.ru URL here..." />
-                <button id="load-btn" class="primary-btn">Download & Cache</button>
-            </div>
-            <div id="load-status" class="status-msg"></div>
-        </section>
-
-        <section class="card search-section" id="search-section">
-            <h2>2. Search Target Phrase</h2>
-            <div class="input-group">
-                <input type="text" id="search-text" placeholder="e.g. My mind rebels at stagnation" />
-            </div>
-            <div class="input-group" style="margin-top: 10px;">
-                <select id="search-mode" class="primary-btn" style="background: rgba(255, 255, 255, 0.1); color: white; border: 1px solid rgba(255, 255, 255, 0.2); padding: 0.8rem 1.5rem; border-radius: 8px; font-weight: 600; cursor: pointer;">
-                    <option value="asr_only" style="color: black;">ASR Only</option>
-                    <option value="asr_ocr" style="color: black;">ASR + OCR (Fine)</option>
-                    <option value="ocr_only" style="color: black;">OCR Only</option>
-                </select>
-                <button id="search-btn" class="primary-btn">Run AI Pipeline</button>
-            </div>
-            <div id="search-status" class="status-msg"></div>
-        </section>
-
-        <section class="card result-section hidden" id="result-section">
-            <h2>Extraction Result</h2>
-            <div class="result-content">
-                <div class="result-details">
-                    <div class="metric" id="metric-status">
-                        <span class="label">Status</span>
-                        <span class="value highlight" id="res-status">FOUND</span>
+    <main class="split-layout">
+        <!-- 30% Sidebar -->
+        <aside class="sidebar">
+            <div class="controls-wrapper">
+                <div class="control-group">
+                    <div class="label-with-icon">
+                        <div class="icon-box">
+                            <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"></path></svg>
+                        </div>
+                        <label for="video-select">LOCAL FILES</label>
                     </div>
-                    <div class="metric" id="metric-time">
-                        <span class="label">Timestamp</span>
-                        <span class="value" id="res-time">00:00:21.610</span>
-                    </div>
-                    <div class="metric" id="metric-frame">
-                        <span class="label">Frame</span>
-                        <span class="value" id="res-frame">0</span>
-                    </div>
-                    <div class="metric" id="metric-conf">
-                        <span class="label">Confidence</span>
-                        <span class="value" id="res-conf">100%</span>
-                    </div>
-                    <div class="metric full-width" id="metric-text">
-                        <span class="label">Matched Text</span>
-                        <span class="value text-quote" id="res-text">"breathing in your dust"</span>
+                    <div class="select-wrapper">
+                        <select id="video-select" class="input-field">
+                            <option value="">Select file</option>
+                        </select>
                     </div>
                 </div>
-                <div class="result-image">
-                    <img id="res-img" src="" alt="Extracted Frame" />
+
+                <div class="control-group">
+                    <div class="label-with-icon">
+                        <div class="icon-box">
+                            <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"></path><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"></path></svg>
+                        </div>
+                        <label for="video-url">URL</label>
+                    </div>
+                    <input type="text" id="video-url" class="input-field" placeholder="Enter url" />
+                </div>
+                
+                <div class="control-group">
+                    <div class="label-with-icon">
+                        <div class="icon-box">
+                            <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"></circle><line x1="21" y1="21" x2="16.65" y2="16.65"></line></svg>
+                        </div>
+                        <label for="search-text">TARGET PHRASE</label>
+                    </div>
+                    <input type="text" id="search-text" class="input-field" placeholder="Enter target phrase" />
+                </div>
+
+                <div class="control-group">
+                    <div class="label-with-icon">
+                        <div class="icon-box">
+                            <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2v20"></path><path d="M17 5v14"></path><path d="M22 10v4"></path><path d="M7 5v14"></path><path d="M2 10v4"></path></svg>
+                        </div>
+                        <label for="search-mode">ASR</label>
+                    </div>
+                    <div class="select-wrapper">
+                        <select id="search-mode" class="input-field">
+                            <option value="asr_only">Select ASR model</option>
+                            <option value="asr_ocr" selected>ASR + OCR (Fine)</option>
+                            <option value="ocr_only">OCR Only</option>
+                        </select>
+                    </div>
+                </div>
+
+                <button id="run-btn" class="primary-btn">
+                    <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"></circle><polygon points="10 8 16 12 10 16 10 8"></polygon></svg>
+                    <span>Run pipe</span>
+                </button>
+                <div id="status-msg" class="status-msg"></div>
+            </div>
+        </aside>
+
+        <!-- 70% Main Content -->
+        <section class="main-content">
+            <div class="content-inner">
+                <!-- Idle State -->
+                <div id="idle-state" class="state-container">
+                    <div class="icon-pulse" style="color: #F16812;">🎥</div>
+                    <h2>Ready to Analyze</h2>
+                    <p>Select a file and enter a phrase.</p>
+                </div>
+
+                <!-- Processing State -->
+                <div id="processing-state" class="state-container hidden">
+                    <div class="scanner-container">
+                        <div class="scanner-box">
+                            <div class="scanner-glow"></div>
+                            <div class="scanner-line"></div>
+                        </div>
+                    </div>
+                    <h2 style="color: #2D241C;">Processing Pipeline...</h2>
+                </div>
+
+                <!-- Result State -->
+                <div id="result-state" class="state-container result-section hidden">
+                    <div class="result-header">
+                        <h2 style="color: #2D241C;">Extraction Result</h2>
+                        <span id="res-status" class="status-badge">FOUND</span>
+                    </div>
+                    
+                    <div class="result-layout">
+                        <!-- Left side details -->
+                        <div class="result-details">
+                            <div class="metric" id="metric-time">
+                                <span class="label">Timestamp</span>
+                                <span class="value highlight-text" id="res-time">00:00:21.610</span>
+                            </div>
+                            <div class="metric" id="metric-frame">
+                                <span class="label">Frame</span>
+                                <span class="value" id="res-frame">0</span>
+                            </div>
+                            <div class="metric" id="metric-conf">
+                                <span class="label">Confidence</span>
+                                <span class="value" id="res-conf">100%</span>
+                            </div>
+                            <div class="metric full-width" id="metric-text">
+                                <span class="label">Matched Text</span>
+                                <span class="value text-quote" id="res-text">"breathing in your dust"</span>
+                            </div>
+                        </div>
+                        
+                        <!-- Right side image -->
+                        <div class="result-image-container">
+                            <img id="res-img" src="" alt="Extracted Frame" />
+                        </div>
+                    </div>
                 </div>
             </div>
         </section>
     </main>
 
-    <script src="script.js"></script>
+    <script src="script.js?v=7"></script>
 </body>
 </html>

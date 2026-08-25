@@ -16,7 +16,7 @@ from find_dialogue import DialogueDetector
 
 PORT = 8000
 FRONTEND_DIR = Path(__file__).parent.parent / "frontend"
-ASSETS_DIR = Path(__file__).parent.parent / "assets"
+ASSETS_DIR = Path(r"C:\Users\dayan\Documents\Quest1\assets")
 OUTPUT_DIR = Path(__file__).parent.parent / "output"
 
 class DialogueAPIHandler(SimpleHTTPRequestHandler):
