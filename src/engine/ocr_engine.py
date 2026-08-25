@@ -31,6 +31,12 @@ class OCREngine:
 
     def extract_text(self, image: np.ndarray) -> str:
         gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY) if len(image.shape) == 3 else image
+        
+        # Scale Down Resolution Optimization
+        h, w = gray.shape[:2]
+        if w >= 1000:  # e.g., 1080p or 4K videos
+            gray = cv2.resize(gray, (w // 2, h // 2), interpolation=cv2.INTER_AREA)
+            
         with _GPU_LOCK:
             if self._backend == "easyocr":
                 results = self._engine.readtext(gray)

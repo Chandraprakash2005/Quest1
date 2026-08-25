@@ -98,6 +98,16 @@ def build_ocr_cache(meta: VideoMeta, ocr_engine: OCREngine, window: SearchWindow
                 continue
                 
             sub_region = crop_subtitle_region(frame)
+            
+            # Blank Frame Binarization Skipping Optimization
+            gray = cv2.cvtColor(sub_region, cv2.COLOR_BGR2GRAY)
+            _, thresh = cv2.threshold(gray, 200, 255, cv2.THRESH_BINARY)
+            white_pixels = cv2.countNonZero(thresh)
+            
+            if white_pixels < 50:
+                ts += 1.0 / COARSE_FPS
+                continue
+                
             text = ocr_engine.extract_text(sub_region)
             if text.strip():
                 chunk_results.append({

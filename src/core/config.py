@@ -16,10 +16,10 @@ if _nvidia_base.exists():
                     if hasattr(os, "add_dll_directory"):
                         os.add_dll_directory(str(_dll_path))
 
-DEFAULT_URL = "https://ok.ru/video/248244667877"
-DEFAULT_DIALOGUE = "My mind rebels at stagnation"
+DEFAULT_URL = ""
+DEFAULT_DIALOGUE = ""
 ASR_WINDOW_PAD = 2.0
-COARSE_FPS = 3.0
+COARSE_FPS = 1.0
 CONFIDENCE_OK = 85
 CONFIDENCE_LOW = 70
 REFINE_PASS_A = 0.1
