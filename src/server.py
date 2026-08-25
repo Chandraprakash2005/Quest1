@@ -10,9 +10,10 @@ import urllib.parse
 
 log = logging.getLogger("DialogueServer")
 
-# Ensure src is in the python path
-sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from find_dialogue import DialogueDetector
+# Ensure the project root is in the python path so 'src' can be imported
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+from src.core.orchestrator import DialogueDetector
+from src.phases.ingest import phase0_ingest
 
 PORT = 8000
 FRONTEND_DIR = Path(__file__).parent.parent / "frontend"
@@ -99,8 +100,7 @@ class DialogueAPIHandler(SimpleHTTPRequestHandler):
                 ASSETS_DIR.mkdir(parents=True, exist_ok=True)
                 
                 # 2. Run phase 0 to download & probe
-                detector = DialogueDetector(url=url, target_dialogue="", local_video=local_video, work_dir=str(OUTPUT_DIR))
-                detector.phase0_ingest()
+                phase0_ingest(url, local_video, ASSETS_DIR)
                 
                 self._send_json(200, {"status": "success"})
             except Exception as e:
@@ -126,19 +126,17 @@ class DialogueAPIHandler(SimpleHTTPRequestHandler):
             try:
                 t_start = time.time()
                 detector = DialogueDetector(url=url, target_dialogue=target, mode=mode, local_video=local_video_path_str, work_dir=str(OUTPUT_DIR))
-                # Ensure the video is downloaded or local video exists
-                detector.phase0_ingest()
+                
+                result = detector.run()
+                elapsed = time.time() - t_start
                 
                 # Check if video was successfully ingested
                 if not Path(detector.meta.video_path).exists():
                     self._send_json(400, {"error": "Video download failed or file missing. Try again."})
                     return
                 
-                result = detector.run()
-                elapsed = time.time() - t_start
-                
                 # Return the result and manifest contents
-                manifest_path = getattr(detector, 'manifest_path', Path(f"manifest_{detector.session_id}.json"))
+                manifest_path = getattr(detector, 'manifest_path', OUTPUT_DIR / f"manifest_{detector.session_id}.json")
                 manifest_data = {}
                 if manifest_path.exists():
                     with open(manifest_path, 'r') as f:

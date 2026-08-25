@@ -163,3 +163,47 @@ Now, execute the generation of all 5 files sequentially.
 ## 18. Exact Fallback & ASR / OCR Precision Fixes
 **User Prompt:** "I can choose the file or link; if file is chosen disable the link input and vice versa. Also, the OCR cache has an issue giving timestamp and frames as 0. For ASR, first check for the accurate word, if not present then partial that matches the word more."
 **Result:** Executed multiple critical fixes across the pipeline. In the UI, linked the URL and Local File inputs exclusively so selecting one dynamically disables and clears the other. In the backend, resolved a major OpenCV bug where `CAP_PROP_POS_MSEC` failed to seek correctly in background threads (causing them to read from 0.0s) by switching all temporal seeking to absolute frame indices (`CAP_PROP_POS_FRAMES`), instantly restoring OCR cache timestamp accuracy. For ASR, verified and locked in the matching waterfall: it natively banks the highest sequential `exact_score` first, ensuring valid partial matches (e.g., 3 out of 4 words perfect) act as a baseline. Modified the fuzzy sliding window algorithm to use strict `fuzz.ratio` instead of `token_set_ratio` to mathematically eliminate 100% false-positives caused by tiny, grammatically meaningless token subsets (e.g., "I you" triggering a perfect score against "I love you").
+
+## 19. Modularization of Backend Architecture & Ingestion Pipeline Optimization
+**User Prompt:** "Remove specific ok.ru download code in favor of a general public downloader that handles errors gracefully. Split the monolithic find_dialogue script into multiple dedicated files per function, and organize them into separate clean directories in src while removing any unused files."
+**Result:** Executed a comprehensive architectural refactor of the backend. Dismantled the monolithic `find_dialogue.py` script into a clean, domain-driven structure featuring `src/core`, `src/engine`, `src/phases`, and `src/utils` directories. Abstracted model loading into singleton engines, compartmentalized the detection workflow into 5 explicit sequential phases, and purged all deprecated scripts. Additionally, overhauled the media ingestion pipeline by replacing hardcoded scraping logic with a robust, generalized `yt-dlp` downloader that safely catches geo-blocks and private video errors, and dynamically re-linked `server.py` to the new architecture.
+
+# PIPELINE UPDATES & REFACTORING
+The original pipeline architecture above has been optimized and modernized with the following changes:
+1. **Module Splitting:** The massive src/find_dialogue.py file has been split into a clean pipeline architecture inside the src/phases/ directory (e.g. sr_phase.py, ocr_phase.py, efine_phase.py, output_phase.py).
+2. **ASR Engine Swap:** The aster-whisper (tiny.en) model was completely replaced with the superior 
+vidia/parakeet-tdt-0.6b-v2 model using the 
+emo_toolkit[asr] framework for much higher accuracy word-level timestamps.
+
+# PERSISTENT OCR CACHE SPECIFICATIONS
+Store the persistent OCR cache inside:
+output/ocr_cache/
+
+Use one directory per video, for example:
+output/
++-- ocr_cache/
+    +-- <video_id>/
+        +-- metadata.json
+        +-- samples.json
+
+Do NOT store the OCR cache anywhere else.
+The cache must persist across application/server restarts.
+metadata.json should contain the information required to validate that the cache belongs to the same video and OCR configuration.
+samples.json should contain ALL timestamped OCR observations, for example:
+[
+    {
+        "timestamp": 10.0,
+        "frame_number": 300,
+        "text": "Hello everyone"
+    }
+]
+
+Do NOT deduplicate repeated text if it occurs at different timestamps.
+For ASR + OCR mode, store newly processed OCR windows in the same output/ocr_cache/<video_id>/ directory.
+For OCR-only mode, store the full-video OCR results there.
+Before running OCR, always check output/ocr_cache/<video_id>/ and reuse already cached time ranges whenever possible.
+Do not use the 10-minute TTL for persistent OCR cache invalidation.
+
+## 19. Persistent Disk OCR Cache & Modular Architecture
+**User Prompt:** 'do the ocr cache optimization in this with the folder spliting like the core engine and the other only dontt change the asr to parakeet other than that do all in this'
+**Result:** Completely refactored the monolithic find_dialogue.py into a modular architecture (src/core, src/engine, src/phases, src/utils) while strictly retaining the aster-whisper ASR engine. Upgraded the OCR caching system from an ephemeral memory cache to a robust, disk-persistent JSON manifest stored in output/ocr_cache/. Replaced generic substring matching with a highly robust word-level Exact & Fuzzy matching algorithm that validates sequences and penalizes out-of-order words, definitively eliminating false positives across long video sequences.
