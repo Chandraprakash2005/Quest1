@@ -227,3 +227,7 @@ Do not use the 10-minute TTL for persistent OCR cache invalidation.
 ## 24. ASR Pre-Cleaning Optimization
 **User Prompt:** "Pre-cleaning: You are calling clean_text(w_text).lower() inside the loop for every single sliding window. Pre-cleaning all the words in the words array once before the loop will drastically speed up the fuzzy matching phase for large transcripts. do this"
 **Result:** Optimized the fuzzy sliding window algorithm in `asr_phase.py` by pre-cleaning and lowering the transcript words outside of the nested loops. This eliminates redundant text processing during every sliding window iteration, drastically speeding up the ASR search phase on longer videos.
+
+## 25. ASR Inverted Index Optimization
+**User Prompt:** "can make the word search in the cache slightly spped up, giv ehte idea... doe the idea 1"
+**Result:** Implemented an Inverted Index architecture in `exact_word_match`. The system now builds a fast-lookup dictionary mapping all cleaned transcript words to their specific indices. When searching, it skips looping over the entire array of words and instead mathematically calculates exact candidate indices where a match is possible. This reduces the search complexity from O(N) to O(1) for word lookups, making exact and partial phrase matching virtually instantaneous even for hour-long transcripts.

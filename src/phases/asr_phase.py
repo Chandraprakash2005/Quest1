@@ -32,21 +32,46 @@ def get_sentence_context(words: list, match_start_idx: int, match_end_idx: int, 
 
 def exact_word_match(target_words: list, transcript_words: list) -> tuple:
     import re
+    from collections import defaultdict
+    
     target_clean = [re.sub(r'[^\w]', '', w).lower() for w in target_words if w.strip()]
     n_target = len(target_clean)
     
-    if n_target == 0:
+    if n_target == 0 or not transcript_words:
         return (0, 0.0, "", -1, -1)
     
+    # Pre-clean transcript and build inverted index
+    cleaned_transcript = []
+    word_index = defaultdict(list)
+    for i, w in enumerate(transcript_words):
+        cw = re.sub(r'[^\w]', '', w["word"]).lower()
+        cleaned_transcript.append(cw)
+        word_index[cw].append(i)
+        
+    # Find all potential window start indices using the inverted index
+    candidate_starts = set()
+    for offset, t_word in enumerate(target_clean):
+        t_variations = [t_word]
+        if not t_word.endswith('s'):
+            t_variations.append(t_word + 's')
+        elif t_word.endswith('s') and len(t_word) > 1:
+            t_variations.append(t_word[:-1])
+            
+        for tv in t_variations:
+            for idx in word_index.get(tv, []):
+                start_idx = idx - offset
+                if 0 <= start_idx <= len(transcript_words) - n_target:
+                    candidate_starts.add(start_idx)
+                    
     best_score = 0
     best_time = 0.0
     best_text = ""
     best_start = -1
     best_end = -1
     
-    for i in range(len(transcript_words) - n_target + 1):
-        window = transcript_words[i:i + n_target]
-        window_clean = [re.sub(r'[^\w]', '', w["word"]).lower() for w in window]
+    # Only iterate over windows that contain at least one matching word
+    for i in sorted(list(candidate_starts)):
+        window_clean = cleaned_transcript[i:i + n_target]
         
         matches = 0
         for t, w in zip(target_clean, window_clean):
@@ -56,8 +81,9 @@ def exact_word_match(target_words: list, transcript_words: list) -> tuple:
         
         if score > best_score:
             best_score = score
-            best_text = " ".join([w["word"] for w in window]).strip()
-            best_time = (window[0]["start"] + window[-1]["end"]) / 2.0
+            window_orig = transcript_words[i:i + n_target]
+            best_text = " ".join([w["word"] for w in window_orig]).strip()
+            best_time = (window_orig[0]["start"] + window_orig[-1]["end"]) / 2.0
             best_start = i
             best_end = i + n_target - 1
             
