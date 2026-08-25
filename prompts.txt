@@ -239,3 +239,7 @@ Do not use the 10-minute TTL for persistent OCR cache invalidation.
 ## 27. High-Accuracy ASR Engine Upgrade
 **User Prompt:** "The initial speech recognition accuracy feels too low with the current model. Upgrade the Whisper ASR engine to a higher accuracy tier to improve the baseline transcription fidelity before it falls back to OCR."
 **Result:** Upgraded the core `faster-whisper` model from `base.en` to `medium.en` across the pipeline. This significantly increases speech recognition fidelity and punctuation tracking (virtually human-level accuracy for English) while remaining highly performant on the local RTX 4050 GPU, ensuring the multi-modal search has a mathematically superior baseline before falling back to visual OCR.
+
+## 28. Disabling VAD for Complete Transcripts
+**User Prompt:** "The generated transcript cache only contains partial dialogue segments because of the Voice Activity Detection (VAD) filter. Disable the VAD filter so that the pipeline generates and caches a complete, unfragmented timeline of the entire video audio."
+**Result:** Disabled the `vad_filter` (Voice Activity Detection) in the Whisper transcription parameters. This prevents the pipeline from aggressively stripping out silent or noisy audio segments, ensuring that the generated `samples.json` cache contains a complete, unfragmented timeline of the entire video.

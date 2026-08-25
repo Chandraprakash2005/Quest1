@@ -136,8 +136,7 @@ def phase1_asr(meta: VideoMeta, target: str) -> tuple:
                     meta.audio_path, 
                     language="en", 
                     word_timestamps=True,
-                    vad_filter=True,
-                    vad_parameters=dict(min_silence_duration_ms=500),
+                    vad_filter=False,
                     beam_size=5,
                     condition_on_previous_text=True
                 )
