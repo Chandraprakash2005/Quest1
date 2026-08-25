@@ -625,13 +625,16 @@ class DialogueDetector:
         log.info("ASR Strategy 1: Exact whole-word matching for '%s' (%d words)", self.target, n_target_words)
         exact_score, exact_time, exact_text, m_start, m_end = self._exact_word_match(target_words, words)
         
+        best_score = exact_score
+        best_time = exact_time
+        if exact_score > 0:
+            best_text = self._get_sentence_context(words, m_start, m_end) if m_start >= 0 else exact_text
+        else:
+            best_text = ""
+
         if exact_score >= 100:
             # Perfect exact match — get full sentence context
-            context_text = self._get_sentence_context(words, m_start, m_end)
-            log.info("Exact match found: score=%.0f at t=%.2fs text='%s'", exact_score, exact_time, context_text[:80])
-            best_score = exact_score
-            best_time = exact_time
-            best_text = context_text
+            log.info("Exact match found: score=%.0f at t=%.2fs text='%s'", exact_score, exact_time, best_text[:80])
         elif n_target_words >= 3:
             # ── Strategy 2: Fuzzy matching only for longer phrases (≥3 words) ──
             log.info("ASR Strategy 2: Fuzzy sliding window (target has %d words)", n_target_words)
@@ -639,7 +642,12 @@ class DialogueDetector:
                 for j in range(i + 1, min(i + n_target_words + 3, len(words) + 1)):
                     window = words[i:j]
                     w_text = " ".join([w["word"] for w in window]).strip()
+                    # Use ratio for sliding windows to avoid subset false-positives
                     w_score = fuzz.ratio(self.target.lower(), self._clean(w_text).lower())
+                    
+                    # Penalize if the window is drastically shorter than the target
+                    if len(window) < (n_target_words * 0.7):
+                        w_score -= 20
                     
                     if w_score > best_score:
                         best_score = w_score
@@ -688,8 +696,8 @@ class DialogueDetector:
         import concurrent.futures
         import os
         
-        # Dynamically scale threads based on available CPU cores (cap at 12 to prevent disk/RAM thrashing)
-        num_workers = min(12, (os.cpu_count() or 4))
+        # Dynamically scale threads based on available CPU cores (cap at 4 to prevent disk/RAM thrashing)
+        num_workers = min(4, (os.cpu_count() or 4))
         chunk_duration = self.meta.duration / num_workers
         chunks = [(i * chunk_duration, (i + 1) * chunk_duration if i < num_workers - 1 else self.meta.duration) for i in range(num_workers)]
         
@@ -710,7 +718,7 @@ class DialogueDetector:
                     log.info("OCR Thread %d: %.1f%% complete", chunk_id, pct)
                     last_log_ts = ts
 
-                cap.set(cv2.CAP_PROP_POS_MSEC, ts * 1000)
+                cap.set(cv2.CAP_PROP_POS_FRAMES, int(ts * self.meta.fps))
                 ret, frame = cap.read()
                 if not ret:
                     ts += 1.0 / COARSE_FPS
@@ -827,7 +835,7 @@ class DialogueDetector:
         if best_score >= CONFIDENCE_LOW:
             status = "OK" if best_score >= CONFIDENCE_OK else "LOW_CONFIDENCE"
             log.info("Coarse match: score=%.0f (%s) at t=%.2fs", best_score, status, best_ts)
-            self.best = MatchResult(best_ts, 0, best_text, best_score, status)
+            self.best = MatchResult(best_ts, int(best_ts * self.meta.fps), best_text, best_score, status)
             return best_ts
 
         log.warning("No coarse OCR match found (best=%.0f).", best_score)
@@ -848,7 +856,7 @@ class DialogueDetector:
             best_s, best_t, best_txt = 0.0, t_coarse, ""
             t = start
             while t <= end:
-                cap.set(cv2.CAP_PROP_POS_MSEC, t * 1000)
+                cap.set(cv2.CAP_PROP_POS_FRAMES, int(t * self.meta.fps))
                 ret, frame = cap.read()
                 if not ret:
                     t += step
@@ -953,7 +961,7 @@ class DialogueDetector:
 
         t = t_center - back_step
         while t >= max(0, t_center - max_back) and steps < 5:
-            cap.set(cv2.CAP_PROP_POS_MSEC, t * 1000)
+            cap.set(cv2.CAP_PROP_POS_FRAMES, int(t * self.meta.fps))
             ret, frame = cap.read()
             if not ret:
                 break

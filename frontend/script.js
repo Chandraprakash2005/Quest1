@@ -6,6 +6,25 @@ const runBtn = document.getElementById('run-btn');
 const statusMsg = document.getElementById('status-msg');
 const historyContainer = document.getElementById('history-container');
 
+// Exclusive selection logic for URL vs Local File
+videoUrlInput.addEventListener('input', () => {
+    if (videoUrlInput.value.trim().length > 0) {
+        videoSelect.disabled = true;
+        videoSelect.value = "";
+    } else {
+        videoSelect.disabled = false;
+    }
+});
+
+videoSelect.addEventListener('change', () => {
+    if (videoSelect.value !== "") {
+        videoUrlInput.disabled = true;
+        videoUrlInput.value = "";
+    } else {
+        videoUrlInput.disabled = false;
+    }
+});
+
 // Fetch cached videos and history on page load
 window.addEventListener('DOMContentLoaded', async () => {
     // 1. Fetch Videos
