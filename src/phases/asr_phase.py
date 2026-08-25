@@ -40,11 +40,16 @@ def exact_word_match(target_words: list, transcript_words: list) -> tuple:
     if n_target == 0 or not transcript_words:
         return (0, 0.0, "", -1, -1)
     
-    # Pre-clean transcript and build inverted index
+    # Pre-clean transcript and build inverted index (using cached clean words if available)
     cleaned_transcript = []
     word_index = defaultdict(list)
     for i, w in enumerate(transcript_words):
-        cw = re.sub(r'[^\w]', '', w["word"]).lower()
+        if "clean" in w:
+            cw = w["clean"]
+        else:
+            cw = re.sub(r'[^\w]', '', w["word"]).lower()
+            w["clean"] = cw  # Backfill RAM cache
+            
         cleaned_transcript.append(cw)
         word_index[cw].append(i)
         
@@ -98,53 +103,63 @@ def phase1_asr(meta: VideoMeta, target: str) -> tuple:
     import json
     from pathlib import Path
     
+    global _TRANSCRIPT_CACHE
     video_id = Path(meta.video_path).stem if meta.video_path else "unknown_video"
-    cache_dir = Path("output/asr_cache") / video_id
-    cache_dir.mkdir(parents=True, exist_ok=True)
     
-    cache_file = cache_dir / "samples.json"
-    
-    if cache_file.exists():
-        log.info("Found persistent ASR cache on disk. Loading...")
-        try:
-            with open(cache_file, "r") as f:
-                all_words = json.load(f)
-        except Exception as e:
-            log.warning("Failed to load ASR cache (%s). Will re-run.", str(e))
-            all_words = None
+    if video_id in _TRANSCRIPT_CACHE:
+        log.info("Found ASR cache in RAM (instant load).")
+        all_words = _TRANSCRIPT_CACHE[video_id]
     else:
-        all_words = None
+        cache_dir = Path("output/asr_cache") / video_id
+        cache_dir.mkdir(parents=True, exist_ok=True)
+        
+        cache_file = cache_dir / "samples.json"
+        
+        if cache_file.exists():
+            log.info("Found persistent ASR cache on disk. Loading into RAM...")
+            try:
+                with open(cache_file, "r") as f:
+                    all_words = json.load(f)
+                _TRANSCRIPT_CACHE[video_id] = all_words
+            except Exception as e:
+                log.warning("Failed to load ASR cache (%s). Will re-run.", str(e))
+                all_words = None
+        else:
+            all_words = None
 
-    if not all_words:
-        log.info("ASR cache miss. Running Whisper over entire audio...")
-        try:
-            model = get_whisper_model("base.en")
-            segments_iter, _ = model.transcribe(
-                meta.audio_path, 
-                language="en", 
-                word_timestamps=True,
-                vad_filter=True,
-                vad_parameters=dict(min_silence_duration_ms=500),
-                beam_size=5,
-                condition_on_previous_text=True
-            )
-            
-            all_words = []
-            for seg in segments_iter:
-                words = seg.words if hasattr(seg, "words") else seg.get("words", [])
-                for w in words:
-                    w_text = w.word if hasattr(w, "word") else w.get("word", "")
-                    w_start = w.start if hasattr(w, "start") else w.get("start", 0)
-                    w_end = w.end if hasattr(w, "end") else w.get("end", 0)
-                    all_words.append({"word": w_text, "start": w_start, "end": w_end})
-                    
-            with open(cache_file, "w") as f:
-                json.dump(all_words, f, indent=2)
-            log.info("Saved ASR cache to disk: %s", cache_file)
+        if not all_words:
+            log.info("ASR cache miss. Running Whisper over entire audio...")
+            import re
+            try:
+                model = get_whisper_model("base.en")
+                segments_iter, _ = model.transcribe(
+                    meta.audio_path, 
+                    language="en", 
+                    word_timestamps=True,
+                    vad_filter=True,
+                    vad_parameters=dict(min_silence_duration_ms=500),
+                    beam_size=5,
+                    condition_on_previous_text=True
+                )
                 
-        except Exception as exc:
-            log.warning("ASR inference failed (%s). Falling back to full scan.", str(exc)[:50])
-            return SearchWindow(0.0, meta.duration), None
+                all_words = []
+                for seg in segments_iter:
+                    words = seg.words if hasattr(seg, "words") else seg.get("words", [])
+                    for w in words:
+                        w_text = w.word if hasattr(w, "word") else w.get("word", "")
+                        w_start = w.start if hasattr(w, "start") else w.get("start", 0)
+                        w_end = w.end if hasattr(w, "end") else w.get("end", 0)
+                        w_clean = re.sub(r'[^\w]', '', w_text).lower()
+                        all_words.append({"word": w_text, "start": w_start, "end": w_end, "clean": w_clean})
+                        
+                with open(cache_file, "w") as f:
+                    json.dump(all_words, f, indent=2)
+                _TRANSCRIPT_CACHE[video_id] = all_words
+                log.info("Saved ASR cache to disk and RAM.")
+                    
+            except Exception as exc:
+                log.warning("ASR inference failed (%s). Falling back to full scan.", str(exc)[:50])
+                return SearchWindow(0.0, meta.duration), None
 
     words = all_words
     target_words = target.split()
@@ -169,7 +184,8 @@ def phase1_asr(meta: VideoMeta, target: str) -> tuple:
     elif n_target_words >= 3:
         log.info("ASR Strategy 2: Fuzzy sliding window (target has %d words)", n_target_words)
         target_clean = target.lower()
-        cleaned_words = [clean_text(w["word"]).lower() for w in words]
+        # Words should already be backfilled with 'clean' from exact_word_match
+        cleaned_words = [w["clean"] for w in words]
         
         for i in range(len(words)):
             for j in range(i + 1, min(i + n_target_words + 3, len(words) + 1)):
