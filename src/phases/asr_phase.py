@@ -142,11 +142,14 @@ def phase1_asr(meta: VideoMeta, target: str) -> tuple:
         log.info("Exact match found: score=%.0f at t=%.2fs text='%s'", exact_score, exact_time, best_text[:80])
     elif n_target_words >= 3:
         log.info("ASR Strategy 2: Fuzzy sliding window (target has %d words)", n_target_words)
+        target_clean = target.lower()
+        cleaned_words = [clean_text(w["word"]).lower() for w in words]
+        
         for i in range(len(words)):
             for j in range(i + 1, min(i + n_target_words + 3, len(words) + 1)):
                 window = words[i:j]
-                w_text = " ".join([w["word"] for w in window]).strip()
-                w_score = fuzz.ratio(target.lower(), clean_text(w_text).lower())
+                w_clean_text = " ".join(cleaned_words[i:j]).strip()
+                w_score = fuzz.ratio(target_clean, w_clean_text)
                 
                 if len(window) < (n_target_words * 0.7):
                     w_score -= 20
