@@ -83,10 +83,31 @@ function renderHistoryCard(resultData, sessionId, targetText, prepend = true) {
             wordCount = resultData.extracted_text.trim().split(/\s+/).length;
         }
         
+        let mode = resultData.mode;
+        if (!mode) {
+            if (resultData.status === "ASR_ONLY_MATCH") mode = "asr_only";
+            else mode = "ocr_only";
+        }
+        
+        let methodIcon = "";
+        let methodText = "";
+        if (mode === "asr_only") {
+            methodIcon = `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M2 10v3"/><path d="M6 6v11"/><path d="M10 3v18"/><path d="M14 8v7"/><path d="M18 5v13"/><path d="M22 10v3"/></svg>`;
+            methodText = "VOICE";
+        } else if (mode === "ocr_only") {
+            methodIcon = `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"></path><circle cx="12" cy="12" r="3"></circle></svg>`;
+            methodText = "VISUAL";
+        } else {
+            methodIcon = `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="2"/><path d="M7.5 7.5a6.4 6.4 0 0 0 0 9"/><path d="M16.5 7.5a6.4 6.4 0 0 1 0 9"/><path d="M4.5 4.5a10.6 10.6 0 0 0 0 15"/><path d="M19.5 4.5a10.6 10.6 0 0 1 0 15"/><path d="M12 2v3"/><path d="M12 19v3"/></svg>`;
+            methodText = "DUAL";
+        }
+        
         const cardHtml = `
             <div class="history-card">
                 <div class="history-image-col">
-                    <img src="${imgSrc}" alt="Extracted Frame" onerror="this.src=''" />
+                    <div style="position: relative; display: flex; max-width: 100%; height: auto;">
+                        <img src="${imgSrc}" alt="Extracted Frame" onerror="this.src=''" style="display: block; width: 100%; height: auto;" />
+                    </div>
                 </div>
                 <div class="history-details-col">
                     <div class="history-metrics-grid">
@@ -110,6 +131,15 @@ function renderHistoryCard(resultData, sessionId, targetText, prepend = true) {
                                 <span class="history-metric-label">WORDS</span>
                             </div>
                             <span class="history-metric-value">${wordCount}</span>
+                        </div>
+                        <div class="history-metric-box">
+                            <div class="history-metric-header">
+                                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"></polygon></svg>
+                                <span class="history-metric-label">METHOD</span>
+                            </div>
+                            <div class="history-metric-value" style="display: flex; align-items: center; gap: 6px; color: var(--neon-blue);">
+                                ${methodIcon} <span style="font-size: 0.95rem; line-height: 1.2;">${methodText}</span>
+                            </div>
                         </div>
                         <div class="history-metric-box success" style="flex: 1 1 max-content; min-width: 110px;">
                             <div class="history-metric-header">

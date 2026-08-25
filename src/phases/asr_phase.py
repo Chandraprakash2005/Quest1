@@ -32,21 +32,51 @@ def get_sentence_context(words: list, match_start_idx: int, match_end_idx: int, 
 
 def exact_word_match(target_words: list, transcript_words: list) -> tuple:
     import re
+    from collections import defaultdict
+    
     target_clean = [re.sub(r'[^\w]', '', w).lower() for w in target_words if w.strip()]
     n_target = len(target_clean)
     
-    if n_target == 0:
+    if n_target == 0 or not transcript_words:
         return (0, 0.0, "", -1, -1)
     
+    # Pre-clean transcript and build inverted index (using cached clean words if available)
+    cleaned_transcript = []
+    word_index = defaultdict(list)
+    for i, w in enumerate(transcript_words):
+        if "clean" in w:
+            cw = w["clean"]
+        else:
+            cw = re.sub(r'[^\w]', '', w["word"]).lower()
+            w["clean"] = cw  # Backfill RAM cache
+            
+        cleaned_transcript.append(cw)
+        word_index[cw].append(i)
+        
+    # Find all potential window start indices using the inverted index
+    candidate_starts = set()
+    for offset, t_word in enumerate(target_clean):
+        t_variations = [t_word]
+        if not t_word.endswith('s'):
+            t_variations.append(t_word + 's')
+        elif t_word.endswith('s') and len(t_word) > 1:
+            t_variations.append(t_word[:-1])
+            
+        for tv in t_variations:
+            for idx in word_index.get(tv, []):
+                start_idx = idx - offset
+                if 0 <= start_idx <= len(transcript_words) - n_target:
+                    candidate_starts.add(start_idx)
+                    
     best_score = 0
     best_time = 0.0
     best_text = ""
     best_start = -1
     best_end = -1
     
-    for i in range(len(transcript_words) - n_target + 1):
-        window = transcript_words[i:i + n_target]
-        window_clean = [re.sub(r'[^\w]', '', w["word"]).lower() for w in window]
+    # Only iterate over windows that contain at least one matching word
+    for i in sorted(list(candidate_starts)):
+        window_clean = cleaned_transcript[i:i + n_target]
         
         matches = 0
         for t, w in zip(target_clean, window_clean):
@@ -56,8 +86,9 @@ def exact_word_match(target_words: list, transcript_words: list) -> tuple:
         
         if score > best_score:
             best_score = score
-            best_text = " ".join([w["word"] for w in window]).strip()
-            best_time = (window[0]["start"] + window[-1]["end"]) / 2.0
+            window_orig = transcript_words[i:i + n_target]
+            best_text = " ".join([w["word"] for w in window_orig]).strip()
+            best_time = (window_orig[0]["start"] + window_orig[-1]["end"]) / 2.0
             best_start = i
             best_end = i + n_target - 1
             
@@ -72,45 +103,62 @@ def phase1_asr(meta: VideoMeta, target: str) -> tuple:
     import json
     from pathlib import Path
     
+    global _TRANSCRIPT_CACHE
     video_id = Path(meta.video_path).stem if meta.video_path else "unknown_video"
-    cache_dir = Path("output/asr_cache") / video_id
-    cache_dir.mkdir(parents=True, exist_ok=True)
     
-    cache_file = cache_dir / "samples.json"
-    
-    if cache_file.exists():
-        log.info("Found persistent ASR cache on disk. Loading...")
-        try:
-            with open(cache_file, "r") as f:
-                all_words = json.load(f)
-        except Exception as e:
-            log.warning("Failed to load ASR cache (%s). Will re-run.", str(e))
-            all_words = None
+    if video_id in _TRANSCRIPT_CACHE:
+        log.info("Found ASR cache in RAM (instant load).")
+        all_words = _TRANSCRIPT_CACHE[video_id]
     else:
-        all_words = None
+        cache_dir = Path("output/asr_cache") / video_id
+        cache_dir.mkdir(parents=True, exist_ok=True)
+        
+        cache_file = cache_dir / "samples.json"
+        
+        if cache_file.exists():
+            log.info("Found persistent ASR cache on disk. Loading into RAM...")
+            try:
+                with open(cache_file, "r") as f:
+                    all_words = json.load(f)
+                _TRANSCRIPT_CACHE[video_id] = all_words
+            except Exception as e:
+                log.warning("Failed to load ASR cache (%s). Will re-run.", str(e))
+                all_words = None
+        else:
+            all_words = None
 
-    if not all_words:
-        log.info("ASR cache miss. Running Whisper over entire audio...")
-        try:
-            model = get_whisper_model("tiny.en")
-            segments_iter, _ = model.transcribe(meta.audio_path, language="en", word_timestamps=True)
-            
-            all_words = []
-            for seg in segments_iter:
-                words = seg.words if hasattr(seg, "words") else seg.get("words", [])
-                for w in words:
-                    w_text = w.word if hasattr(w, "word") else w.get("word", "")
-                    w_start = w.start if hasattr(w, "start") else w.get("start", 0)
-                    w_end = w.end if hasattr(w, "end") else w.get("end", 0)
-                    all_words.append({"word": w_text, "start": w_start, "end": w_end})
-                    
-            with open(cache_file, "w") as f:
-                json.dump(all_words, f, indent=2)
-            log.info("Saved ASR cache to disk: %s", cache_file)
+        if not all_words:
+            log.info("ASR cache miss. Running Whisper over entire audio...")
+            import re
+            try:
+                model = get_whisper_model("medium.en")
+                segments_iter, _ = model.transcribe(
+                    meta.audio_path, 
+                    language="en", 
+                    word_timestamps=True,
+                    vad_filter=False,
+                    beam_size=2,
+                    condition_on_previous_text=False
+                )
                 
-        except Exception as exc:
-            log.warning("ASR inference failed (%s). Falling back to full scan.", str(exc)[:50])
-            return SearchWindow(0.0, meta.duration), None
+                all_words = []
+                for seg in segments_iter:
+                    words = seg.words if hasattr(seg, "words") else seg.get("words", [])
+                    for w in words:
+                        w_text = w.word if hasattr(w, "word") else w.get("word", "")
+                        w_start = w.start if hasattr(w, "start") else w.get("start", 0)
+                        w_end = w.end if hasattr(w, "end") else w.get("end", 0)
+                        w_clean = re.sub(r'[^\w]', '', w_text).lower()
+                        all_words.append({"word": w_text, "start": w_start, "end": w_end, "clean": w_clean})
+                        
+                with open(cache_file, "w") as f:
+                    json.dump(all_words, f, indent=2)
+                _TRANSCRIPT_CACHE[video_id] = all_words
+                log.info("Saved ASR cache to disk and RAM.")
+                    
+            except Exception as exc:
+                log.warning("ASR inference failed (%s). Falling back to full scan.", str(exc)[:50])
+                return SearchWindow(0.0, meta.duration), None
 
     words = all_words
     target_words = target.split()
@@ -134,11 +182,15 @@ def phase1_asr(meta: VideoMeta, target: str) -> tuple:
         log.info("Exact match found: score=%.0f at t=%.2fs text='%s'", exact_score, exact_time, best_text[:80])
     elif n_target_words >= 3:
         log.info("ASR Strategy 2: Fuzzy sliding window (target has %d words)", n_target_words)
+        target_clean = target.lower()
+        import re
+        cleaned_words = [w.get("clean", re.sub(r'[^\w]', '', w["word"]).lower()) for w in words]
+        
         for i in range(len(words)):
             for j in range(i + 1, min(i + n_target_words + 3, len(words) + 1)):
                 window = words[i:j]
-                w_text = " ".join([w["word"] for w in window]).strip()
-                w_score = fuzz.ratio(target.lower(), clean_text(w_text).lower())
+                w_clean_text = " ".join(cleaned_words[i:j]).strip()
+                w_score = fuzz.ratio(target_clean, w_clean_text)
                 
                 if len(window) < (n_target_words * 0.7):
                     w_score -= 20

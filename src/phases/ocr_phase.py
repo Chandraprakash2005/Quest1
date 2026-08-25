@@ -69,7 +69,7 @@ def save_cache(meta: VideoMeta, new_samples: list, window: SearchWindow):
         json.dump({"video_path": meta.video_path, "ranges": ranges}, f, indent=4)
 
 def build_ocr_cache(meta: VideoMeta, ocr_engine: OCREngine, window: SearchWindow) -> None:
-    num_workers = min(4, (os.cpu_count() or 4))
+    num_workers = min(2, (os.cpu_count() or 2))
     duration = window.end - window.start
     chunk_duration = duration / num_workers
     chunks = [(window.start + i * chunk_duration, window.start + (i + 1) * chunk_duration if i < num_workers - 1 else window.end) for i in range(num_workers)]
@@ -84,6 +84,8 @@ def build_ocr_cache(meta: VideoMeta, ocr_engine: OCREngine, window: SearchWindow
         
         ts = start_ts
         last_log_ts = start_ts
+        last_thresh = None
+        last_text = ""
         
         while ts <= end_ts:
             if ts - last_log_ts >= 30:
@@ -91,8 +93,17 @@ def build_ocr_cache(meta: VideoMeta, ocr_engine: OCREngine, window: SearchWindow
                 log.info("OCR Thread %d: %.1f%% complete", chunk_id, pct)
                 last_log_ts = ts
 
-            cap.set(cv2.CAP_PROP_POS_MSEC, int(ts * 1000))
-            ret, frame = cap.read()
+            target_frame = int(ts * fps)
+            current_frame = cap.get(cv2.CAP_PROP_POS_FRAMES)
+            
+            # Fast-forward optimization: if jumping < 60 frames, just grab() instead of heavy seeking
+            if target_frame > current_frame and (target_frame - current_frame) < 60:
+                for _ in range(int(target_frame - current_frame)):
+                    cap.grab()
+                ret, frame = cap.read()
+            else:
+                cap.set(cv2.CAP_PROP_POS_FRAMES, target_frame)
+                ret, frame = cap.read()
             if not ret:
                 ts += 1.0 / COARSE_FPS
                 continue
@@ -105,15 +116,33 @@ def build_ocr_cache(meta: VideoMeta, ocr_engine: OCREngine, window: SearchWindow
             white_pixels = cv2.countNonZero(thresh)
             
             if white_pixels < 50:
+                last_thresh = None
+                last_text = ""
                 ts += 1.0 / COARSE_FPS
                 continue
                 
-            text = ocr_engine.extract_text(sub_region)
-            if text.strip():
+            # Visual Hashing (Bypass OCR if subtitle hasn't changed)
+            if last_thresh is not None:
+                diff = cv2.absdiff(thresh, last_thresh)
+                if cv2.countNonZero(diff) < 100:  # Image is virtually identical
+                    if last_text:
+                        chunk_results.append({
+                            "timestamp": float(ts),
+                            "frame_number": int(ts * fps),
+                            "text": last_text
+                        })
+                    ts += 1.0 / COARSE_FPS
+                    continue
+                    
+            text = ocr_engine.extract_text(sub_region).strip()
+            last_thresh = thresh.copy()
+            last_text = text
+            
+            if last_text:
                 chunk_results.append({
                     "timestamp": float(ts),
                     "frame_number": int(ts * fps),
-                    "text": text.strip()
+                    "text": last_text
                 })
                 
             ts += 1.0 / COARSE_FPS

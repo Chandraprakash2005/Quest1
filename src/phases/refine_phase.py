@@ -16,7 +16,7 @@ def scan_range(meta: VideoMeta, ocr_engine: OCREngine, start: float, end: float,
     best_s, best_t, best_txt = 0.0, t_coarse, ""
     t = start
     while t <= end:
-        cap.set(cv2.CAP_PROP_POS_MSEC, int(t * 1000))
+        cap.set(cv2.CAP_PROP_POS_FRAMES, int(t * meta.fps))
         ret, frame = cap.read()
         if not ret:
             t += step
@@ -50,7 +50,7 @@ def find_first_appearance(meta: VideoMeta, ocr_engine: OCREngine, t_center: floa
 
     t = t_center - back_step
     while t >= max(0, t_center - max_back) and steps < 5:
-        cap.set(cv2.CAP_PROP_POS_MSEC, int(t * 1000))
+        cap.set(cv2.CAP_PROP_POS_FRAMES, int(t * meta.fps))
         ret, frame = cap.read()
         if not ret:
             break

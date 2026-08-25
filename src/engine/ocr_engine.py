@@ -39,6 +39,6 @@ class OCREngine:
             
         with _GPU_LOCK:
             if self._backend == "easyocr":
-                results = self._engine.readtext(gray)
-                return " ".join([r[1] for r in results])
+                results = self._engine.readtext(gray, detail=0)
+                return " ".join(results)
         return ""
