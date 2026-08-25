@@ -4,26 +4,11 @@ const searchTextInput = document.getElementById('search-text');
 const searchModeSelect = document.getElementById('search-mode');
 const runBtn = document.getElementById('run-btn');
 const statusMsg = document.getElementById('status-msg');
+const historyContainer = document.getElementById('history-container');
 
-// States
-const idleState = document.getElementById('idle-state');
-const processingState = document.getElementById('processing-state');
-const resultState = document.getElementById('result-state');
-
-// Result Elements
-const resStatus = document.getElementById('res-status');
-const resTime = document.getElementById('res-time');
-const resFrame = document.getElementById('res-frame');
-const resConf = document.getElementById('res-conf');
-const resText = document.getElementById('res-text');
-const resImg = document.getElementById('res-img');
-const metricTime = document.getElementById('metric-time');
-const metricFrame = document.getElementById('metric-frame');
-const metricConf = document.getElementById('metric-conf');
-const resultImageContainer = document.querySelector('.result-image-container');
-
-// Fetch cached videos on page load
+// Fetch cached videos and history on page load
 window.addEventListener('DOMContentLoaded', async () => {
+    // 1. Fetch Videos
     try {
         const resp = await fetch('/api/videos');
         if (resp.ok) {
@@ -32,21 +17,105 @@ window.addEventListener('DOMContentLoaded', async () => {
                 const opt = document.createElement('option');
                 opt.value = vid;
                 opt.textContent = vid;
-                opt.style.color = "black";
                 videoSelect.appendChild(opt);
             });
         }
     } catch (e) {
         console.error("Failed to fetch videos", e);
     }
+
+    // 2. Fetch History
+    try {
+        const resp = await fetch('/api/history');
+        if (resp.ok) {
+            const data = await resp.json();
+            data.history.forEach(hist => {
+                // Backend sends newest first. We use beforeend so they stack top-to-bottom.
+                renderHistoryCard(hist, hist.session_id, hist.target_text || "Unknown Target", false);
+            });
+        }
+    } catch (e) {
+        console.error("Failed to fetch history", e);
+    }
 });
 
-function switchState(stateId) {
-    idleState.classList.add('hidden');
-    processingState.classList.add('hidden');
-    resultState.classList.add('hidden');
-    
-    document.getElementById(stateId).classList.remove('hidden');
+function renderHistoryCard(resultData, sessionId, targetText, prepend = true) {
+    if (resultData.status === "NOT_FOUND") {
+        const cardHtml = `
+            <div class="history-card" style="border-color: rgba(239, 68, 68, 0.3); background: rgba(239, 68, 68, 0.05);">
+                <div style="display: flex; flex-direction: column; width: 100%; gap: 1rem;">
+                    <div style="display: flex; align-items: center; gap: 0.5rem; color: var(--error);">
+                        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"></circle><line x1="12" y1="8" x2="12" y2="12"></line><line x1="12" y1="16" x2="12.01" y2="16"></line></svg>
+                        <span style="font-weight: 700; font-size: 1.1rem; letter-spacing: 0.05em;">TARGET NOT FOUND</span>
+                    </div>
+                    <div class="history-quote-box" style="border-color: rgba(239, 68, 68, 0.2); background: rgba(239, 68, 68, 0.02);">
+                        Searched for: <span style="font-style: italic;">"${targetText}"</span>
+                    </div>
+                </div>
+            </div>
+        `;
+        if (prepend) historyContainer.insertAdjacentHTML('afterbegin', cardHtml);
+        else historyContainer.insertAdjacentHTML('beforeend', cardHtml);
+    } else {
+        const imgSrc = `/api/frame?id=${sessionId}&t=` + new Date().getTime();
+        
+        let wordCount = 0;
+        if (resultData.extracted_text && resultData.extracted_text.trim()) {
+            wordCount = resultData.extracted_text.trim().split(/\s+/).length;
+        }
+        
+        const cardHtml = `
+            <div class="history-card">
+                <div class="history-image-col">
+                    <img src="${imgSrc}" alt="Extracted Frame" onerror="this.src=''" />
+                </div>
+                <div class="history-details-col">
+                    <div class="history-metrics-grid">
+                        <div class="history-metric-box">
+                            <div class="history-metric-header">
+                                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"></circle><polyline points="12 6 12 12 16 14"></polyline></svg>
+                                <span class="history-metric-label">TIMESTAMP</span>
+                            </div>
+                            <span class="history-metric-value">${resultData.timestamp}</span>
+                        </div>
+                        <div class="history-metric-box">
+                            <div class="history-metric-header">
+                                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="2" width="20" height="20" rx="2.18" ry="2.18"></rect><line x1="7" y1="2" x2="7" y2="22"></line><line x1="17" y1="2" x2="17" y2="22"></line><line x1="2" y1="12" x2="22" y2="12"></line><line x1="2" y1="7" x2="7" y2="7"></line><line x1="2" y1="17" x2="7" y2="17"></line><line x1="17" y1="17" x2="22" y2="17"></line><line x1="17" y1="7" x2="22" y2="7"></line></svg>
+                                <span class="history-metric-label">FRAME</span>
+                            </div>
+                            <span class="history-metric-value">${resultData.frame_number}</span>
+                        </div>
+                        <div class="history-metric-box">
+                            <div class="history-metric-header">
+                                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="8" y1="6" x2="21" y2="6"></line><line x1="8" y1="12" x2="21" y2="12"></line><line x1="8" y1="18" x2="21" y2="18"></line><line x1="3" y1="6" x2="3.01" y2="6"></line><line x1="3" y1="12" x2="3.01" y2="12"></line><line x1="3" y1="18" x2="3.01" y2="18"></line></svg>
+                                <span class="history-metric-label">WORDS</span>
+                            </div>
+                            <span class="history-metric-value">${wordCount}</span>
+                        </div>
+                        <div class="history-metric-box success" style="flex: 1 1 max-content; min-width: 110px;">
+                            <div class="history-metric-header">
+                                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"></path><polyline points="22 4 12 14.01 9 11.01"></polyline></svg>
+                                <span class="history-metric-label">CONFIDENCE</span>
+                            </div>
+                            <span class="history-metric-value">${resultData.confidence_score}%</span>
+                        </div>
+                        <div class="history-metric-box" style="flex: 5 1 auto; min-width: 150px;">
+                            <div class="history-metric-header">
+                                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"></circle><line x1="21" y1="21" x2="16.65" y2="16.65"></line></svg>
+                                <span class="history-metric-label">TARGET</span>
+                            </div>
+                            <span class="history-metric-value" style="font-size: 0.95rem; line-height: 1.2; word-wrap: break-word; white-space: normal;">"${targetText}"</span>
+                        </div>
+                    </div>
+                    <div class="history-quote-box">
+                        "${resultData.extracted_text}"
+                    </div>
+                </div>
+            </div>
+        `;
+        if (prepend) historyContainer.insertAdjacentHTML('afterbegin', cardHtml);
+        else historyContainer.insertAdjacentHTML('beforeend', cardHtml);
+    }
 }
 
 runBtn.addEventListener('click', async () => {
@@ -67,10 +136,25 @@ runBtn.addEventListener('click', async () => {
 
     setLoading(runBtn, true);
     showStatus("", "");
-    switchState('processing-state');
+    
+    // Create processing card
+    const processingId = 'proc-' + Date.now();
+    const processingHtml = `
+        <div id="${processingId}" class="history-card processing-card">
+            <div class="scanner-container">
+                <div class="scanner-box">
+                    <div class="scanner-glow"></div>
+                    <div class="scanner-line"></div>
+                </div>
+            </div>
+            <div class="processing-text">Processing Pipeline...</div>
+        </div>
+    `;
+    historyContainer.insertAdjacentHTML('afterbegin', processingHtml);
+    const procCard = document.getElementById(processingId);
 
     try {
-        // Send a single request to /api/search
+        // Send request
         const response = await fetch('/api/search', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
@@ -83,55 +167,18 @@ runBtn.addEventListener('click', async () => {
         });
         
         const data = await response.json();
+        procCard.remove(); // Remove processing card
         
         if (response.ok) {
             showStatus("Pipeline completed in " + data.elapsed.toFixed(1) + "s", "success");
-            
-            // Populate results
-            let statusText = data.result.status;
-            if (statusText === "NOT_FOUND") {
-                statusText = "Not Found";
-                resStatus.className = "status-badge error";
-            } else {
-                if (searchMode === "asr_only") statusText = "ASR Match";
-                else if (searchMode === "ocr_only") statusText = "OCR Match";
-                else if (searchMode === "asr_ocr") statusText = "ASR + OCR Match";
-                else statusText = "Match Found";
-                
-                resStatus.className = "status-badge";
-            }
-            resStatus.textContent = statusText.toUpperCase();
-            
-            if (data.result.status === "NOT_FOUND") {
-                metricTime.style.display = "none";
-                metricFrame.style.display = "none";
-                metricConf.style.display = "none";
-                resultImageContainer.style.display = "none";
-                resText.textContent = '"Not found in the video"';
-            } else {
-                metricTime.style.display = "flex";
-                metricFrame.style.display = "flex";
-                metricConf.style.display = "flex";
-                resultImageContainer.style.display = "flex";
-                
-                resTime.textContent = data.result.timestamp;
-                resFrame.textContent = data.result.frame_number;
-                resConf.textContent = data.result.confidence_score + "%";
-                resText.textContent = '"' + data.result.extracted_text + '"';
-                
-                // Add cache buster to image and use session_id for concurrency
-                const sessionId = data.session_id || "";
-                resImg.src = `/api/frame?id=${sessionId}&t=` + new Date().getTime();
-            }
-            
-            switchState('result-state');
+            const sessionId = data.session_id || "";
+            renderHistoryCard(data.result, sessionId, targetText, true);
         } else {
             showStatus("Error: " + data.error, "error");
-            switchState('idle-state'); // Revert back to idle on error
         }
     } catch (err) {
         showStatus("Network error occurred.", "error");
-        switchState('idle-state');
+        if(document.getElementById(processingId)) document.getElementById(processingId).remove();
     } finally {
         setLoading(runBtn, false);
     }

@@ -44,6 +44,24 @@ class DialogueAPIHandler(SimpleHTTPRequestHandler):
                 self.send_error(404, "Frame not found")
             return
             
+        if self.path == "/api/history":
+            history = []
+            if OUTPUT_DIR.exists():
+                for manifest_file in sorted(OUTPUT_DIR.glob("manifest_*.json"), key=os.path.getmtime, reverse=True):
+                    try:
+                        with open(manifest_file, 'r') as f:
+                            data = json.load(f)
+                            session_id = manifest_file.stem.split('_')[1] if '_' in manifest_file.stem else ""
+                            data['session_id'] = session_id
+                            history.append(data)
+                    except:
+                        pass
+            self.send_response(200)
+            self.send_header('Content-type', 'application/json')
+            self.end_headers()
+            self.wfile.write(json.dumps({"history": history}).encode('utf-8'))
+            return
+
         if self.path == "/api/videos":
             videos = []
             video_dir = ASSETS_DIR / "video"
@@ -125,6 +143,11 @@ class DialogueAPIHandler(SimpleHTTPRequestHandler):
                 if manifest_path.exists():
                     with open(manifest_path, 'r') as f:
                         manifest_data = json.load(f)
+                    
+                    # Inject target_text so history knows what we searched for
+                    manifest_data["target_text"] = target
+                    with open(manifest_path, 'w') as f:
+                        json.dump(manifest_data, f, indent=2)
                 
                 self._send_json(200, {
                     "status": "success", 
