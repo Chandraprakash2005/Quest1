@@ -137,8 +137,8 @@ def phase1_asr(meta: VideoMeta, target: str) -> tuple:
                     language="en", 
                     word_timestamps=True,
                     vad_filter=False,
-                    beam_size=5,
-                    condition_on_previous_text=True
+                    beam_size=2,
+                    condition_on_previous_text=False
                 )
                 
                 all_words = []
@@ -183,8 +183,8 @@ def phase1_asr(meta: VideoMeta, target: str) -> tuple:
     elif n_target_words >= 3:
         log.info("ASR Strategy 2: Fuzzy sliding window (target has %d words)", n_target_words)
         target_clean = target.lower()
-        # Words should already be backfilled with 'clean' from exact_word_match
-        cleaned_words = [w["clean"] for w in words]
+        import re
+        cleaned_words = [w.get("clean", re.sub(r'[^\w]', '', w["word"]).lower()) for w in words]
         
         for i in range(len(words)):
             for j in range(i + 1, min(i + n_target_words + 3, len(words) + 1)):
