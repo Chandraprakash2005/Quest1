@@ -37,14 +37,14 @@ class DialogueDetector:
         log.info("Video URL: %s", self.url)
 
         if self.status_callback: self.status_callback("node-media", "Loading media assets...")
-        self.meta = phase0_ingest(self.url, self.local_video, self.assets_dir)
+        self.meta = phase0_ingest(self.url, self.local_video, self.assets_dir, self.status_callback)
 
         if self.mode == "ocr_only":
             log.info("Mode 'ocr_only' selected. Skipping ASR.")
             window = SearchWindow(0.0, self.meta.duration)
         else:
             if self.status_callback: self.status_callback("node-asr", "Running ASR audio transcription...")
-            window, self.asr_best = phase1_asr(self.meta, self.target)
+            window, self.asr_best = phase1_asr(self.meta, self.target, self.status_callback)
 
         if self.mode == "asr_only":
             if self.asr_best is not None and self.asr_best.confidence >= 60:
@@ -69,19 +69,23 @@ class DialogueDetector:
                 if self.status_callback: self.status_callback("node-ocr", "Refining anchor with OCR scan...")
                 self.best = phase3_refine(self.meta, self.ocr, t_coarse, self.target, self.mode, self.best)
                 
-                if self.best.status == "NOT_FOUND":
-                    log.warning("OCR refinement failed to find subtitles. Falling back to ASR anchor.")
+                # If OCR refinement didn't find subtitles (confidence is 0 or below ASR confidence), fall back to ASR
+                if self.best.status == "NOT_FOUND" or self.best.confidence == 0 or self.best.confidence < self.asr_best.confidence:
+                    log.warning("OCR refinement found no subtitles. Falling back to ASR transcription: '%s' (%.1f%%)", self.asr_best.extracted_text, self.asr_best.confidence)
+                    # Use the frame number from the refined timestamp if available, but keep ASR transcript and confidence
+                    if self.best.frame_number > 0 and self.asr_best.frame_number == 0:
+                        self.asr_best.frame_number = self.best.frame_number
                     self.best = self.asr_best
             else:
                 log.warning("Mode 'asr_ocr': ASR failed. Falling back to full video OCR.")
                 if self.status_callback: self.status_callback("node-ocr", "Running full video OCR scan...")
-                t_coarse, self.best = phase2_coarse_ocr(self.meta, self.ocr, window, self.target)
+                t_coarse, self.best = phase2_coarse_ocr(self.meta, self.ocr, window, self.target, self.status_callback)
                 if t_coarse is not None:
                     if self.status_callback: self.status_callback("node-ocr", "Refining anchor with OCR scan...")
                     self.best = phase3_refine(self.meta, self.ocr, t_coarse, self.target, self.mode, self.best)
         else:
             if self.status_callback: self.status_callback("node-ocr", "Running full video OCR scan...")
-            t_coarse, self.best = phase2_coarse_ocr(self.meta, self.ocr, window, self.target)
+            t_coarse, self.best = phase2_coarse_ocr(self.meta, self.ocr, window, self.target, self.status_callback)
             if t_coarse is not None:
                 if self.status_callback: self.status_callback("node-ocr", "Refining anchor with OCR scan...")
                 self.best = phase3_refine(self.meta, self.ocr, t_coarse, self.target, self.mode, self.best)

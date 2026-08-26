@@ -4,7 +4,7 @@ from src.core.config import log
 
 class VideoDownloader:
     @staticmethod
-    def download(url: str, assets_dir: Path) -> Path:
+    def download(url: str, assets_dir: Path, status_callback=None) -> Path:
         video_dir = assets_dir / "video"
         video_dir.mkdir(parents=True, exist_ok=True)
         
@@ -26,9 +26,24 @@ class VideoDownloader:
                     "Chrome/126.0.0.0 Safari/537.36"
                 ),
             },
+            "cookiesfrombrowser": ("chrome",),
             "quiet": True,
             "no_warnings": True,
         }
+        
+        def yt_progress_hook(d):
+            if d['status'] == 'downloading' and status_callback:
+                p_str = d.get('_percent_str', '0.0%').strip()
+                import re
+                # Clean ANSI escape sequences and % sign
+                p_clean = re.sub(r'\x1b\[[0-9;]*m', '', p_str).replace('%', '').strip()
+                try:
+                    pct = float(p_clean)
+                    status_callback("node-media", f"Downloading video... {pct:.1f}%", pct)
+                except ValueError:
+                    pass
+
+        base_opts["progress_hooks"] = [yt_progress_hook]
 
         formats = [
             "bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best",

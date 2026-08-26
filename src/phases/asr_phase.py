@@ -97,11 +97,13 @@ def exact_word_match(target_words: list, transcript_words: list) -> tuple:
     
     return (best_score, best_time, best_text, best_start, best_end)
 
-def phase1_asr(meta: VideoMeta, target: str) -> tuple:
+def phase1_asr(meta: VideoMeta, target: str, status_callback=None) -> tuple:
     log.info("=== Phase 1: ASR Accelerator ===")
 
     import json
     from pathlib import Path
+    
+    from src.core.config import OUTPUT_DIR
     
     global _TRANSCRIPT_CACHE
     video_id = Path(meta.video_path).stem if meta.video_path else "unknown_video"
@@ -110,7 +112,7 @@ def phase1_asr(meta: VideoMeta, target: str) -> tuple:
         log.info("Found ASR cache in RAM (instant load).")
         all_words = _TRANSCRIPT_CACHE[video_id]
     else:
-        cache_dir = Path("output/asr_cache") / video_id
+        cache_dir = OUTPUT_DIR / "asr_cache" / video_id
         cache_dir.mkdir(parents=True, exist_ok=True)
         
         cache_file = cache_dir / "samples.json"
@@ -133,7 +135,9 @@ def phase1_asr(meta: VideoMeta, target: str) -> tuple:
             try:
                 # Pass 1: Small (high accuracy) sweep FIRST (Lazy Evaluation)
                 log.info("Running high-accuracy sweep (small.en)...")
+                if status_callback: status_callback("node-asr", "Loading AI Voice Model (may take a minute on first run)...", 5)
                 small_model = get_whisper_model("small.en")
+                if status_callback: status_callback("node-asr", "Analyzing audio...", 10)
                 small_iter, _ = small_model.transcribe(
                     meta.audio_path, language="en", word_timestamps=True, vad_filter=False, beam_size=2, condition_on_previous_text=False
                 )
@@ -146,6 +150,10 @@ def phase1_asr(meta: VideoMeta, target: str) -> tuple:
                         w_start = w.get("start", 0) if isinstance(w, dict) else getattr(w, "start", 0)
                         w_end = w.get("end", 0) if isinstance(w, dict) else getattr(w, "end", 0)
                         small_words.append({"word": w_text, "start": w_start, "end": w_end})
+                    if status_callback and hasattr(meta, "duration") and meta.duration > 0:
+                        seg_end = seg.get("end", 0) if isinstance(seg, dict) else getattr(seg, "end", 0)
+                        pct = min(70.0, (seg_end / meta.duration) * 70.0)
+                        status_callback("node-asr", f"Running high-accuracy audio transcription... {pct:.1f}%", pct)
                         
                 # Hybrid merge logic: check for all gaps > 5.0 seconds
                 gaps = []
@@ -167,6 +175,9 @@ def phase1_asr(meta: VideoMeta, target: str) -> tuple:
                     fallback_model = get_whisper_model("tiny.en")
                     fallback_words = []
                     
+                    total_gap_duration = sum(g_end - g_start for g_start, g_end in gaps)
+                    processed_gap_duration = 0.0
+                    
                     for (g_start, g_end) in gaps:
                         gap_audio = os.path.join(tempfile.gettempdir(), f"gap_{video_id}_{g_start}.wav")
                         duration = g_end - g_start
@@ -185,7 +196,12 @@ def phase1_asr(meta: VideoMeta, target: str) -> tuple:
                                 w_end = w.get("end", 0) if isinstance(w, dict) else getattr(w, "end", 0)
                                 # Offset timestamps relative to the crop
                                 fallback_words.append({"word": w_text, "start": w_start + g_start, "end": w_end + g_start})
+                            if status_callback and total_gap_duration > 0:
+                                seg_end = seg.get("end", 0) if isinstance(seg, dict) else getattr(seg, "end", 0)
+                                pct = 70.0 + min(30.0, ((processed_gap_duration + seg_end) / total_gap_duration) * 30.0)
+                                status_callback("node-asr", f"Running fallback audio transcription... {pct:.1f}%", pct)
                         
+                        processed_gap_duration += duration
                         if os.path.exists(gap_audio):
                             try: os.remove(gap_audio)
                             except: pass
@@ -199,6 +215,7 @@ def phase1_asr(meta: VideoMeta, target: str) -> tuple:
                         w_clean = re.sub(r'[^\w]', '', w["word"]).lower()
                         all_words.append({"word": w["word"], "start": w["start"], "end": w["end"], "clean": w_clean})
                 else:
+                    if status_callback: status_callback("node-asr", "ASR audio transcription complete... 100.0%", 100.0)
                     all_words = []
                     for w in small_words:
                         w_clean = re.sub(r'[^\w]', '', w["word"]).lower()

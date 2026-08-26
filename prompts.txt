@@ -317,3 +317,122 @@ Result: Implemented a state-of-the-art Hybrid ASR architecture inside asr_engine
 2. It mathematically calculates the temporal difference between every transcribed word to check for silent gaps > 5.0s anywhere in the video (beginning, middle, or end) caused by the model's strict no_speech thresholds. If no gaps are detected, it terminates instantly.
 3. For every gap detected, it spawns a subprocess to ffmpeg to instantly extract just those isolated chunks of audio.
 4. It feeds these short audio chunks to tiny.en (with a blazing-fast beam_size=1), offsetting the output timestamps dynamically, and surgically injecting the aggressive extraction back into the main transcript JSON. This provides 100% audio coverage while keeping the hybrid processing overhead negligible.
+
+PROMPT 1: NLE Multi-Track Video Timeline Sequence Component
+--------------------------------------------------------------------------------
+"Create a modern non-linear editor (NLE) multi-track sequence timeline in a clean 
+slate and white theme (#ffffff, #f8fafc, #0f172a). Include track headers on the left 
+for 'V1 Video' and 'A1 Dialogue' with distinct pill badges. Across the top, render an 
+interactive timecode ruler (00:00 to 00:50). In track V1, display a continuous video clip 
+block with filmstrip iconography and a highlighted match frame segment. In track A1, 
+render animated acoustic waveform bars with a glowing orange (#ff5722) dialogue segment. 
+Include a top-down draggable scrubbing playhead with a teardrop head and vertical laser stem."
+
+PROMPT 2: Live Glassmorphism On-Video Subtitle Overlay Player
+--------------------------------------------------------------------------------
+"Design a responsive 16:9 video player with a floating cinematic subtitle overlay positioned 
+at the lower-center viewport. The subtitle pill must use dark glassmorphism 
+(rgba(15, 23, 42, 0.85), backdrop-filter: blur(10px), border: 1px solid rgba(255, 255, 255, 0.15)) 
+with decorative orange quotation marks and bold typography. When within ±2.5s of the dialogue 
+moment, the subtitle pill smoothly pulses in primary orange. Include floating overlay player 
+controls at the bottom with Play/Pause, Rewind 3s, Forward 3s, Timecode Badge, [CC] Subtitle Toggle, 
+and a 'Jump to Match' button."
+
+PROMPT 3: Diagnostic 'Not Found' Hero Card with Themed Vector Illustration
+--------------------------------------------------------------------------------
+"Design an empty/not-found result card for an AI video search engine in a clean white and 
+light-red tint (#fdf2f2). On the left, display a custom SVG vector graphic showing a filmstrip reel, 
+a monitor displaying flat audio waveforms, and a floating search lens with an orange 'X' marker. 
+On the right, display a bold 'Phrase Not Detected (0%)' header, a summary paragraph highlighting 
+the searched keyword, a 4-column metadata grid (Query, Mode, Video Source, Status), and actionable 
+one-click remedy buttons ('Search with ASR Voice Mode' and 'Run Dual ASR+OCR Scan')."
+
+PROMPT 4: Active Speaker Detection (ASD) Video Monitor & Face Bounding Overlay
+--------------------------------------------------------------------------------
+"Create a video monitoring interface displaying real-time Active Speaker Detection status. 
+Overlay dynamic speaker bounding boxes on detected faces in the video: green bounding box 
+with an animated audio indicator for the active speaking person ('ON-SCREEN SPEAKER 98%'), 
+and subtle dashed gray boxes for passive listeners. In the top corner, display a floating status 
+badge showing 'ON-SCREEN' or 'OFF-SCREEN DIALOGUE' with speaker silhouette icons."
+
+PROMPT 5: Real-Time Multi-Phase Pipeline Node Execution Graph
+--------------------------------------------------------------------------------
+"Build a modern horizontal pipeline execution diagram showing 5 distinct processing nodes: 
+1. Ingest Video -> 2. ASR Speech Transcription -> 3. OCR Visual Text Scan -> 4. Multi-Modal Alignment 
+-> 5. Output Manifest. Each node must have a circular icon, a status title, and dynamic connector 
+bars between nodes. Active nodes should feature animated glowing pulses, completed nodes show green 
+checkmarks, and pending nodes remain neutral slate. Below the active node, render a real-time console log ticker."
+
+PROMPT 6: Inspector Panel & Extracted Keyframe Metadata Grid
+--------------------------------------------------------------------------------
+"Design a 2-column Inspector Panel for video dialogue search results. The left column showcases 
+the extracted high-resolution video keyframe with a frame index badge ('#147') and timestamp overlay. 
+The right column showcases the 'DETECTED SPOKEN DIALOGUE' card featuring an italicized quote box with 
+a left primary orange accent border (#ff5722), a match confidence badge (e.g. '100% Match'), and a 
+structured 3-row metadata list (Target Query, Timecode, Pipeline Engine)."
+
+PROMPT 7: Dual-Mode (ASR Voice vs. OCR Visual) Split-Screen Comparison
+--------------------------------------------------------------------------------
+"Create a side-by-side comparison UI component contrasting ASR Audio Transcription against Visual OCR 
+Subtitle extraction. The left panel shows the ASR audio waveform transcript with phoneme timing and 
+match score. The right panel shows the OCR extracted frame text alongside the cropped subtitle region image. 
+Highlight common matching words in green and discrepancies in amber, with a central badge displaying 
+the combined multi-modal fused confidence."
+
+PROMPT 8: Collapsible Search History & Video Session Drawer
+--------------------------------------------------------------------------------
+"Design a sleek right-hand collapsible history drawer with smooth slide-over animation. Each history 
+card displays a thumbnail snapshot of the searched video, target keyword pill, pipeline mode badge 
+(Voice/Visual/Dual), timestamp of match (e.g. 00:00:04.900), and relative run time ('2 mins ago'). 
+Hovering over a card shows quick action icons: 'Replay in Studio', 'Copy JSON Manifest', and 'Delete Session'."
+
+PROMPT 9: Interactive Audio Waveform Spectrogram & Dialogue Match Pin
+--------------------------------------------------------------------------------
+"Design an interactive audio waveform visualizer using vertical amplitude bars rendered in 
+gradient shades of slate (#334155) and orange (#ff5722). Highlight the detected speech phrase with 
+a distinct colored region and an interactive pin marker labeled 'TARGET MATCH [00:14.2]'. Include 
+hover tooltips displaying milliseconds timecode and volume dB levels upon cursor movement."
+
+PROMPT 10: Video Library & Cache Management Dashboard
+--------------------------------------------------------------------------------
+"Build a clean video asset management dashboard. Render cached video footage cards in a 3-column 
+grid with video duration badges, file sizes, resolution labels (e.g. '1080p 30fps'), and status chips 
+showing whether ASR cache and OCR cache are pre-built. Include a global action toolbar with 'Upload New Video', 
+'Purge Selected Cache', and a search/filter input field."
+
+PROMPT 11: Subtitle Region Crop & Threshold Tuning Modal
+--------------------------------------------------------------------------------
+"Create an interactive OCR calibration modal window. Display a video frame with an adjustable drag-to-resize 
+crop bounding box over the subtitle area. On the right side, include real-time image preprocessing sliders 
+(Grayscale Threshold 0-255, Contrast Enhancement, Noise Reduction) with a live binary binarization 
+preview showing white text isolated on black background for instant OCR verification."
+
+PROMPT 12: Floating Mini-Player & Instant Timestamp Scrub Controller
+--------------------------------------------------------------------------------
+"Design a compact floating mini-player toolbar that pins to the bottom of the viewport when scrolling 
+past the main video canvas. Features include thumbnail preview on hover over the progress track, instant 
+jump-to-timecode buttons (-5s, -1s, +1s, +5s), play/pause toggle, volume slider with mute icon, and a 
+direct button to expand back to full editor mode."
+
+PROMPT 13: Search Query Input Hub with Auto-Detect Mode Switcher
+--------------------------------------------------------------------------------
+"Design a primary search input component with a modern floating label, search icon, and real-time input 
+validation. Below the query input, implement a segmented mode toggle (🎙️ Voice ASR | 👁️ Visual OCR | ⚡ Dual ASR+OCR) 
+with smooth sliding indicator animation. Underneath, render an explanatory tooltip that dynamically updates 
+to explain how the selected mode functions (e.g., 'Scans burned-in subtitles on frame pixels')."
+
+PROMPT 14: Export & Subtitle Manifest Download Center
+--------------------------------------------------------------------------------
+"Create an export modal for video dialogue results. Provide instant download cards for: 
+1. SubRip Subtitles (.SRT), 2. WebVTT (.VTT), 3. JSON Manifest with timestamps and frame coordinates, 
+4. High-Res Extracted Keyframe (.PNG), and 5. Trimmed 5-Second Video Clip (.MP4). Include a copy-to-clipboard 
+code snippet box for embedding into API clients."
+
+PROMPT 15: Clean White & Orange Studio Design System & Token Set
+--------------------------------------------------------------------------------
+"Generate a complete design system token specification for a professional video AI application:
+- Color Tokens: Primary Orange (#ff5722, #e64a19, #fff0eb), Dark Slate (#0f172a, #1e293b, #334155), Neutral Backgrounds (#ffffff, #f8fafc, #f1f5f9), Success Emerald (#10b981), Warning Amber (#f59e0b), Error Crimson (#ef4444).
+- Typography: Plus Jakarta Sans / Inter with 400 regular, 600 semibold, 700 bold, 800 extrabold.
+- Elevation & Shadows: 0 1px 3px rgba(0,0,0,0.05), 0 4px 12px rgba(15,23,42,0.08), 0 8px 24px rgba(255,87,34,0.12).
+- Micro-Interactions: 0.15s cubic-bezier(0.4, 0, 0.2, 1) transitions for all hover, active, and focus states."
+================================================================================

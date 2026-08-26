@@ -4,7 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Video Dialogue Detector</title>
-    <link rel="stylesheet" href="style.css?v=24">
+    <link rel="stylesheet" href="style.css?v=45">
     <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
 </head>
 <body>
@@ -20,7 +20,7 @@
             <h1>Video Dialogue Detector</h1>
         </div>
         <div class="header-actions">
-            <button class="icon-btn">
+            <button class="icon-btn" title="Help">
                 <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"></circle><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"></path><line x1="12" y1="17" x2="12.01" y2="17"></line></svg>
             </button>
             <button id="history-toggle-btn" class="primary-btn-small" style="background: white; color: var(--text-main); border: 1px solid var(--border-color); box-shadow: 0 2px 4px rgba(0,0,0,0.02);">
@@ -83,20 +83,25 @@
                 </div>
 
                 <div class="section-block">
-                    <div class="section-title"><span></span> SEARCH MODE</div>
+                    <div class="section-title"><span></span> SEARCH METHOD</div>
                     <div class="input-with-icon">
                         <select id="search-mode" class="input-field">
-                            <option value="asr_only">Select ASR model</option>
-                            <option value="asr_ocr" selected>ASR + OCR (Fine)</option>
-                            <option value="ocr_only">OCR Only</option>
+                            <option value="asr_ocr" selected>Voice + On-Screen Text (Best Accuracy)</option>
+                            <option value="asr_only">Voice Audio Only (Fastest)</option>
+                            <option value="ocr_only">On-Screen Text Only (No Audio)</option>
                         </select>
                     </div>
-                    <div class="help-text">Combines voice recognition and text detection</div>
+                    <div class="help-text">Choose how the AI should search for the phrase</div>
                 </div>
 
                 <button id="run-btn" class="primary-btn-large">
                     <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="5 3 19 12 5 21 5 3"></polygon></svg>
                     <span>Run Pipeline</span>
+                </button>
+                
+                <button id="clear-cache-btn" class="primary-btn-large" style="background: transparent; color: var(--error); border: 1px solid rgba(239, 68, 68, 0.3); box-shadow: none; padding: 0.75rem; margin-top: -1rem;">
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path></svg>
+                    <span style="font-size: 0.85rem;">Clear Cache</span>
                 </button>
                 
                 <div class="status-block">
@@ -120,6 +125,6 @@
         </section>
     </main>
 
-    <script src="script.js?v=24"></script>
+    <script src="script.js?v=45"></script>
 </body>
 </html>
