@@ -191,7 +191,9 @@ class DialogueAPIHandler(SimpleHTTPRequestHandler):
                         if result and result.status != "NOT_FOUND" and result.timestamp > 0:
                             import subprocess
                             clip_name = f"clip_{detector.session_id}_{video_filename}"
-                            clip_path = ASSETS_DIR / "video" / clip_name
+                            clips_dir = ASSETS_DIR / "video" / "clips"
+                            clips_dir.mkdir(parents=True, exist_ok=True)
+                            clip_path = clips_dir / clip_name
                             clip_start_time = max(0.0, result.timestamp - 6.0)
                             
                             try:
@@ -202,7 +204,7 @@ class DialogueAPIHandler(SimpleHTTPRequestHandler):
                                 ], capture_output=True, check=True)
                                 
                                 if clip_path.exists():
-                                    video_filename = clip_name
+                                    video_filename = f"clips/{clip_name}"
                             except Exception as e:
                                 print("Error clipping video:", e)
                 

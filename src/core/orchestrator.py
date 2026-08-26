@@ -76,6 +76,12 @@ class DialogueDetector:
                     if self.best.frame_number > 0 and self.asr_best.frame_number == 0:
                         self.asr_best.frame_number = self.best.frame_number
                     self.best = self.asr_best
+                
+                # Run ASD Phase for dual mode if we have a valid ASR anchor
+                if self.status_callback: self.status_callback("node-asd", "Detecting active speakers (ASD)...")
+                from src.phases.asd_phase import phase_asd
+                asd_result = phase_asd(self.meta, self.asr_best, window)
+                self.best.asd_status = asd_result["status"]
             else:
                 log.warning("Mode 'asr_ocr': ASR failed. Falling back to full video OCR.")
                 if self.status_callback: self.status_callback("node-ocr", "Running full video OCR scan...")

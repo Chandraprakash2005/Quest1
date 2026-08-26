@@ -162,7 +162,7 @@ function renderHistoryCard(resultData, sessionId, targetText, prepend = true) {
             const badgeClass = isOff ? "method-badge off-screen" : "method-badge on-screen";
             const badgeText = isOff ? "OFF-SCREEN" : "ON-SCREEN";
             const badgeIcon = isOff ? `<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 1l22 22"></path><path d="M9 9v3a3 3 0 005.12 2.12M15 9.34V4a3 3 0 00-5.94-.6"></path><path d="M17 16.95A7 7 0 015 12v-2m14 0v2a7 7 0 01-.11 1.23"></path><line x1="12" y1="19" x2="12" y2="23"></line><line x1="8" y1="23" x2="16" y2="23"></line></svg>` : `<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"></path><path d="M19 10v2a7 7 0 0 1-14 0v-2"></path><line x1="12" y1="19" x2="12" y2="23"></line><line x1="8" y1="23" x2="16" y2="23"></line></svg>`;
-            asdBadgeHtml = `<div class="${badgeClass}">${badgeIcon} ${badgeText}</div>`;
+            asdBadgeHtml = `<div class="${badgeClass}" style="position: absolute; top: 16px; left: 16px; z-index: 100; box-shadow: 0 4px 12px rgba(0,0,0,0.6);">${badgeIcon} ${badgeText}</div>`;
         }
 
         // Generate unique IDs for interactive editor elements
@@ -258,7 +258,7 @@ function renderHistoryCard(resultData, sessionId, targetText, prepend = true) {
 
         if (isNotFound) {
             cardHtml = `
-                <div class="editor-studio-card not-found-hero-card">
+                <div class="editor-studio-card not-found-hero-card" style="position: relative !important; display: flex !important; flex-direction: column !important; height: 100% !important; width: 100% !important; overflow: hidden !important;">
                     <!-- Top Bar -->
                     <div class="editor-top-bar">
                         <div class="editor-file-badge">
@@ -380,7 +380,7 @@ function renderHistoryCard(resultData, sessionId, targetText, prepend = true) {
             `;
         } else {
             cardHtml = `
-                <div class="editor-studio-card">
+                <div class="editor-studio-card" style="position: relative !important; display: flex !important; flex-direction: column !important; height: 100% !important; width: 100% !important; overflow: hidden !important;">
                     <!-- Header Toolbar -->
                     <div class="editor-top-bar">
                         <div class="editor-file-badge">
@@ -388,13 +388,13 @@ function renderHistoryCard(resultData, sessionId, targetText, prepend = true) {
                             <span class="file-title">${resultData.video_file || 'Captured Video Stream'}</span>
                         </div>
                         <div class="editor-badges-group">
-                            ${asdBadgeHtml}
                             ${matchTimeChipHtml}
                         </div>
                     </div>
 
                     <!-- Video Preview Monitor -->
-                    <div class="editor-preview-viewport">
+                    <div class="editor-preview-viewport" style="position: relative;">
+                        ${asdBadgeHtml}
                         ${mediaHtml}
                     </div>
                     
@@ -581,12 +581,34 @@ function renderHistoryCard(resultData, sessionId, targetText, prepend = true) {
                 }
             };
 
+            const updateTimelineRuler = (duration) => {
+                const ruler = cardEl.querySelector('.timeline-ruler');
+                if (ruler && duration > 0) {
+                    const startT = resultData.clip_start_time !== undefined ? resultData.clip_start_time : 0;
+                    ruler.innerHTML = '';
+                    for (let i = 0; i <= 5; i++) {
+                        const pct = i * 20;
+                        let tickLabel = "";
+                        if (i === 5) {
+                            tickLabel = "END";
+                        } else {
+                            const tickT = startT + (duration * (pct / 100));
+                            // formatTime returns HH:MM:SS.MMM, substring(3, 8) gets MM:SS
+                            tickLabel = formatTime(tickT).substring(3, 8);
+                        }
+                        ruler.insertAdjacentHTML('beforeend', `<div class="ruler-tick" style="left: ${pct}%;"><span>${tickLabel}</span></div>`);
+                    }
+                }
+            };
+
             video.addEventListener('loadedmetadata', () => {
                 const duration = video.duration;
                 if (timeDisplay) {
                     const totalElem = timeDisplay.querySelector('.total-time');
                     if (totalElem) totalElem.textContent = formatTime(duration);
                 }
+                
+                updateTimelineRuler(duration);
 
                 if (duration > 0 && relativeSeconds >= 0) {
                     const clipDuration = Math.max(2.5, duration * 0.06);
@@ -613,6 +635,9 @@ function renderHistoryCard(resultData, sessionId, targetText, prepend = true) {
                     const totalElem = timeDisplay.querySelector('.total-time');
                     if (totalElem) totalElem.textContent = formatTime(duration);
                 }
+                
+                updateTimelineRuler(duration);
+                
                 if (duration > 0 && relativeSeconds >= 0) {
                     const clipDuration = Math.max(2.5, duration * 0.06);
                     const startPct = (Math.max(0, relativeSeconds - 0.5) / duration) * 100;
@@ -722,7 +747,7 @@ function renderHistoryCard(resultData, sessionId, targetText, prepend = true) {
         };
 
         if (prepend) {
-            historyContainer.insertAdjacentHTML('afterbegin', cardHtml);
+            historyContainer.insertAdjacentHTML('afterbegin', `<div class="history-card-wrapper" style="position: relative; margin-bottom: 40px; display: block !important; opacity: 1 !important; visibility: visible !important; height: 600px !important; min-height: 600px !important; overflow: hidden !important;">${cardHtml}</div>`);
             currentResultContainer.innerHTML = cardHtml;
             currentResultContainer.style.display = 'block';
             mainEmptyState.style.display = 'none';
@@ -730,12 +755,16 @@ function renderHistoryCard(resultData, sessionId, targetText, prepend = true) {
             // Wire up controls on both instances
             setTimeout(() => {
                 initEditorCard(currentResultContainer.firstElementChild);
-                initEditorCard(historyContainer.firstElementChild);
+                if (historyContainer.firstElementChild) {
+                    initEditorCard(historyContainer.firstElementChild.firstElementChild);
+                }
             }, 50);
         } else {
-            historyContainer.insertAdjacentHTML('beforeend', cardHtml);
+            historyContainer.insertAdjacentHTML('beforeend', `<div class="history-card-wrapper" style="position: relative; margin-bottom: 40px; display: block !important; opacity: 1 !important; visibility: visible !important; height: 600px !important; min-height: 600px !important; overflow: hidden !important;">${cardHtml}</div>`);
             setTimeout(() => {
-                initEditorCard(historyContainer.lastElementChild);
+                if (historyContainer.lastElementChild) {
+                    initEditorCard(historyContainer.lastElementChild.firstElementChild);
+                }
             }, 50);
         }
     }
