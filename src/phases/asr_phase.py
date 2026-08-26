@@ -128,28 +128,51 @@ def phase1_asr(meta: VideoMeta, target: str) -> tuple:
             all_words = None
 
         if not all_words:
-            log.info("ASR cache miss. Running Whisper over entire audio...")
+            log.info("ASR cache miss. Running Hybrid Whisper sweep...")
             import re
             try:
-                model = get_whisper_model("small.en")
-                segments_iter, _ = model.transcribe(
-                    meta.audio_path, 
-                    language="en", 
-                    word_timestamps=True,
-                    vad_filter=False,
-                    beam_size=2,
-                    condition_on_previous_text=True
+                # Pass 1: Tiny (fast & aggressive)
+                tiny_model = get_whisper_model("tiny.en")
+                tiny_iter, _ = tiny_model.transcribe(
+                    meta.audio_path, language="en", word_timestamps=True, vad_filter=False, beam_size=5, condition_on_previous_text=True
                 )
+                tiny_words = []
+                for seg in tiny_iter:
+                    words_list = seg.get("words", []) if isinstance(seg, dict) else getattr(seg, "words", [])
+                    if not words_list: continue
+                    for w in words_list:
+                        w_text = w.get("word", "") if isinstance(w, dict) else getattr(w, "word", "")
+                        w_start = w.get("start", 0) if isinstance(w, dict) else getattr(w, "start", 0)
+                        w_end = w.get("end", 0) if isinstance(w, dict) else getattr(w, "end", 0)
+                        tiny_words.append({"word": w_text, "start": w_start, "end": w_end})
                 
+                # Pass 2: Small (high accuracy)
+                small_model = get_whisper_model("small.en")
+                small_iter, _ = small_model.transcribe(
+                    meta.audio_path, language="en", word_timestamps=True, vad_filter=False, beam_size=5, condition_on_previous_text=True
+                )
+                small_words = []
+                for seg in small_iter:
+                    words_list = seg.get("words", []) if isinstance(seg, dict) else getattr(seg, "words", [])
+                    if not words_list: continue
+                    for w in words_list:
+                        w_text = w.get("word", "") if isinstance(w, dict) else getattr(w, "word", "")
+                        w_start = w.get("start", 0) if isinstance(w, dict) else getattr(w, "start", 0)
+                        w_end = w.get("end", 0) if isinstance(w, dict) else getattr(w, "end", 0)
+                        small_words.append({"word": w_text, "start": w_start, "end": w_end})
+                        
+                # Hybrid merge logic
                 all_words = []
-                for seg in segments_iter:
-                    words = seg.words if hasattr(seg, "words") else seg.get("words", [])
-                    for w in words:
-                        w_text = w.word if hasattr(w, "word") else w.get("word", "")
-                        w_start = w.start if hasattr(w, "start") else w.get("start", 0)
-                        w_end = w.end if hasattr(w, "end") else w.get("end", 0)
-                        w_clean = re.sub(r'[^\w]', '', w_text).lower()
-                        all_words.append({"word": w_text, "start": w_start, "end": w_end, "clean": w_clean})
+                first_small_start = small_words[0]["start"] if small_words else 0
+                if first_small_start > 5.0:
+                    for w in tiny_words:
+                        if w["end"] < first_small_start:
+                            w_clean = re.sub(r'[^\w]', '', w["word"]).lower()
+                            all_words.append({"word": w["word"], "start": w["start"], "end": w["end"], "clean": w_clean})
+                
+                for w in small_words:
+                    w_clean = re.sub(r'[^\w]', '', w["word"]).lower()
+                    all_words.append({"word": w["word"], "start": w["start"], "end": w["end"], "clean": w_clean})
                         
                 with open(cache_file, "w") as f:
                     json.dump(all_words, f, indent=2)
