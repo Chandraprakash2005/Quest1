@@ -35,3 +35,5 @@ manifest.json
 # Scratch and Test Scripts
 _*.py
 *test*.py
+test_asr_output.json
+limitations.md
