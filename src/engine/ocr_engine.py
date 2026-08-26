@@ -17,10 +17,12 @@ class OCREngine:
         global _EASYOCR_READER
         try:
             import easyocr
+            import torch
+            use_gpu = torch.cuda.is_available()
             os.environ["PYTHONIOENCODING"] = "utf-8"
             if _EASYOCR_READER is None:
-                log.info("Loading EasyOCR into memory (this only happens once)...")
-                _EASYOCR_READER = easyocr.Reader(["en"], gpu=True, verbose=False)
+                log.info(f"Loading EasyOCR into memory (GPU={use_gpu})...")
+                _EASYOCR_READER = easyocr.Reader(["en"], gpu=use_gpu, verbose=False)
             self._engine = _EASYOCR_READER
             self._backend = "easyocr"
             log.info("OCR backend: EasyOCR")
