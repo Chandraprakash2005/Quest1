@@ -135,7 +135,7 @@ def phase1_asr(meta: VideoMeta, target: str) -> tuple:
                 log.info("Running high-accuracy sweep (small.en)...")
                 small_model = get_whisper_model("small.en")
                 small_iter, _ = small_model.transcribe(
-                    meta.audio_path, language="en", word_timestamps=True, vad_filter=False, beam_size=5, condition_on_previous_text=True
+                    meta.audio_path, language="en", word_timestamps=True, vad_filter=True, beam_size=2, condition_on_previous_text=False
                 )
                 small_words = []
                 for seg in small_iter:
@@ -164,19 +164,19 @@ def phase1_asr(meta: VideoMeta, target: str) -> tuple:
                 if gaps:
                     log.info("Detected %d gaps > 5.0s. Fast-cropping for tiny.en sweep...", len(gaps))
                     import subprocess, tempfile, os
-                    tiny_model = get_whisper_model("tiny.en")
-                    tiny_words = []
+                    fallback_model = get_whisper_model("tiny.en")
+                    fallback_words = []
                     
                     for (g_start, g_end) in gaps:
                         gap_audio = os.path.join(tempfile.gettempdir(), f"gap_{video_id}_{g_start}.wav")
                         duration = g_end - g_start
                         subprocess.run(["ffmpeg", "-y", "-i", meta.audio_path, "-ss", str(g_start), "-t", str(duration), "-c", "copy", gap_audio], capture_output=True)
                         
-                        tiny_iter, _ = tiny_model.transcribe(
-                            gap_audio, language="en", word_timestamps=True, vad_filter=False, beam_size=1, condition_on_previous_text=False
+                        fallback_iter, _ = fallback_model.transcribe(
+                            gap_audio, language="en", word_timestamps=True, vad_filter=True, beam_size=1, condition_on_previous_text=False
                         )
                         
-                        for seg in tiny_iter:
+                        for seg in fallback_iter:
                             words_list = seg.get("words", []) if isinstance(seg, dict) else getattr(seg, "words", [])
                             if not words_list: continue
                             for w in words_list:
@@ -184,14 +184,14 @@ def phase1_asr(meta: VideoMeta, target: str) -> tuple:
                                 w_start = w.get("start", 0) if isinstance(w, dict) else getattr(w, "start", 0)
                                 w_end = w.get("end", 0) if isinstance(w, dict) else getattr(w, "end", 0)
                                 # Offset timestamps relative to the crop
-                                tiny_words.append({"word": w_text, "start": w_start + g_start, "end": w_end + g_start})
+                                fallback_words.append({"word": w_text, "start": w_start + g_start, "end": w_end + g_start})
                         
                         if os.path.exists(gap_audio):
                             try: os.remove(gap_audio)
                             except: pass
                             
                     # Merge and sort
-                    merged_words = small_words + tiny_words
+                    merged_words = small_words + fallback_words
                     merged_words.sort(key=lambda x: x["start"])
                     
                     all_words = []

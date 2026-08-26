@@ -9,6 +9,7 @@ from http.server import ThreadingHTTPServer, SimpleHTTPRequestHandler
 import urllib.parse
 
 log = logging.getLogger("DialogueServer")
+GLOBAL_STATUS = {"node": "none", "msg": "Idle"}
 
 # Ensure the project root is in the python path so 'src' can be imported
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -75,6 +76,13 @@ class DialogueAPIHandler(SimpleHTTPRequestHandler):
             self.end_headers()
             self.wfile.write(json.dumps({"videos": videos}).encode('utf-8'))
             return
+            
+        if self.path == "/api/status":
+            self.send_response(200)
+            self.send_header('Content-type', 'application/json')
+            self.end_headers()
+            self.wfile.write(json.dumps(GLOBAL_STATUS).encode('utf-8'))
+            return
 
         # Serve frontend static files
         super().do_GET()
@@ -126,7 +134,12 @@ class DialogueAPIHandler(SimpleHTTPRequestHandler):
 
             try:
                 t_start = time.time()
-                detector = DialogueDetector(url=url, target_dialogue=target, mode=mode, local_video=local_video_path_str, work_dir=str(OUTPUT_DIR))
+                
+                def status_cb(node, msg):
+                    GLOBAL_STATUS["node"] = node
+                    GLOBAL_STATUS["msg"] = msg
+
+                detector = DialogueDetector(url=url, target_dialogue=target, mode=mode, local_video=local_video_path_str, work_dir=str(OUTPUT_DIR), status_callback=status_cb)
                 
                 result = detector.run()
                 elapsed = time.time() - t_start

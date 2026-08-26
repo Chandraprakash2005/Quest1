@@ -14,7 +14,8 @@ from src.phases.refine_phase import phase3_refine
 from src.phases.output_phase import phase4_output
 
 class DialogueDetector:
-    def __init__(self, url: str, target_dialogue: str, work_dir: str = "output", local_video: str = "", mode: str = "asr_only", assets_dir: str = r"C:\Users\dayan\Documents\Quest1\assets") -> None:
+    def __init__(self, url: str, target_dialogue: str, work_dir: str = "output", local_video: str = "", mode: str = "asr_only", assets_dir: str = r"C:\Users\dayan\Documents\Quest1\assets", status_callback=None) -> None:
+        self.status_callback = status_callback
         self.session_id = uuid.uuid4().hex
         self.url = url
         self.target = re.sub(r'[^\w\s]', ' ', target_dialogue).lower()
@@ -35,12 +36,14 @@ class DialogueDetector:
         log.info("Target dialogue: '%s'", self.target)
         log.info("Video URL: %s", self.url)
 
+        if self.status_callback: self.status_callback("node-media", "Loading media assets...")
         self.meta = phase0_ingest(self.url, self.local_video, self.assets_dir)
 
         if self.mode == "ocr_only":
             log.info("Mode 'ocr_only' selected. Skipping ASR.")
             window = SearchWindow(0.0, self.meta.duration)
         else:
+            if self.status_callback: self.status_callback("node-asr", "Running ASR audio transcription...")
             window, self.asr_best = phase1_asr(self.meta, self.target)
 
         if self.mode == "asr_only":
@@ -48,6 +51,7 @@ class DialogueDetector:
                 log.info("Mode 'asr_only': ASR matched target dialogue. Short-circuiting OCR.")
                 
                 # --- NEW TalkNet ASD Stage ---
+                if self.status_callback: self.status_callback("node-asd", "Detecting active speakers (ASD)...")
                 from src.phases.asd_phase import phase_asd
                 asd_result = phase_asd(self.meta, self.asr_best, window)
                 self.asr_best.asd_status = asd_result["status"]
@@ -61,6 +65,8 @@ class DialogueDetector:
             if self.asr_best is not None and self.asr_best.confidence >= 60:
                 log.info("Mode 'asr_ocr': ASR anchored to %.2fs. Zooming into OCR refinement window.", self.asr_best.timestamp)
                 t_coarse = self.asr_best.timestamp
+                
+                if self.status_callback: self.status_callback("node-ocr", "Refining anchor with OCR scan...")
                 self.best = phase3_refine(self.meta, self.ocr, t_coarse, self.target, self.mode, self.best)
                 
                 if self.best.status == "NOT_FOUND":
@@ -68,13 +74,19 @@ class DialogueDetector:
                     self.best = self.asr_best
             else:
                 log.warning("Mode 'asr_ocr': ASR failed. Falling back to full video OCR.")
+                if self.status_callback: self.status_callback("node-ocr", "Running full video OCR scan...")
                 t_coarse, self.best = phase2_coarse_ocr(self.meta, self.ocr, window, self.target)
                 if t_coarse is not None:
+                    if self.status_callback: self.status_callback("node-ocr", "Refining anchor with OCR scan...")
                     self.best = phase3_refine(self.meta, self.ocr, t_coarse, self.target, self.mode, self.best)
         else:
+            if self.status_callback: self.status_callback("node-ocr", "Running full video OCR scan...")
             t_coarse, self.best = phase2_coarse_ocr(self.meta, self.ocr, window, self.target)
             if t_coarse is not None:
+                if self.status_callback: self.status_callback("node-ocr", "Refining anchor with OCR scan...")
                 self.best = phase3_refine(self.meta, self.ocr, t_coarse, self.target, self.mode, self.best)
+
+        if self.status_callback: self.status_callback("node-fuzzy", "Compiling alignment and merging results...")
 
         elapsed = time.time() - t0
         phase4_output(self.meta, self.best, self.session_id, self.work_dir, elapsed)
