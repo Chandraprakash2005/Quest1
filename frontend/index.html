@@ -4,72 +4,122 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Video Dialogue Detector</title>
-    <link rel="stylesheet" href="style.css?v=10">
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="style.css?v=24">
+    <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
 </head>
 <body>
+    <!-- Top Header -->
+    <header class="app-header">
+        <div class="header-logo">
+            <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="#ff5722" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <rect x="2" y="3" width="20" height="14" rx="2" ry="2"></rect>
+                <line x1="8" y1="21" x2="16" y2="21"></line>
+                <line x1="12" y1="17" x2="12" y2="21"></line>
+                <polyline points="7 10 12 15 17 10"></polyline>
+            </svg>
+            <h1>Video Dialogue Detector</h1>
+        </div>
+        <div class="header-actions">
+            <button class="icon-btn">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"></circle><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"></path><line x1="12" y1="17" x2="12.01" y2="17"></line></svg>
+            </button>
+            <button id="history-toggle-btn" class="primary-btn-small" style="background: white; color: var(--text-main); border: 1px solid var(--border-color); box-shadow: 0 2px 4px rgba(0,0,0,0.02);">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"></circle><polyline points="12 6 12 12 16 14"></polyline></svg>
+                History
+            </button>
+        </div>
+    </header>
+
+    <!-- History Drawer -->
+    <div id="history-drawer" class="drawer">
+        <div class="drawer-header">
+            <h2>Search History</h2>
+            <button id="close-history-btn" class="icon-btn">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
+            </button>
+        </div>
+        <div class="drawer-content" id="history-container">
+            <!-- History cards will be appended here -->
+        </div>
+    </div>
+
+    <!-- Drawer Overlay -->
+    <div id="drawer-overlay" class="drawer-overlay"></div>
+
     <main class="split-layout">
         <!-- Sidebar -->
         <aside class="sidebar">
             <div class="controls-wrapper">
-                <div class="control-group">
-                    <div class="label-with-icon">
-                        <label for="video-select">LOCAL FILES</label>
-                    </div>
-                    <div class="select-wrapper">
-                        <select id="video-select" class="input-field">
-                            <option value="">Select file</option>
-                        </select>
-                    </div>
-                </div>
-
-                <div class="glow-divider"><div class="glow-dot"></div></div>
-
-                <div class="control-group">
-                    <div class="label-with-icon">
-                        <label for="video-url">URL</label>
-                    </div>
-                    <input type="text" id="video-url" class="input-field" placeholder="Enter url" />
-                </div>
                 
-                <div class="glow-divider"><div class="glow-dot"></div></div>
-
-                <div class="control-group">
-                    <div class="label-with-icon">
-                        <label for="search-text">TARGET PHRASE</label>
+                <div class="section-block">
+                    <div class="section-title"><span></span> SOURCE</div>
+                    <div class="control-group">
+                        <label>Local Files (Cached)</label>
+                        <div class="input-with-icon">
+                            <svg class="input-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="17 8 12 3 7 8"></polyline><line x1="12" y1="3" x2="12" y2="15"></line></svg>
+                            <select id="video-select" class="input-field">
+                                <option value="">Select file</option>
+                            </select>
+                        </div>
                     </div>
-                    <input type="text" id="search-text" class="input-field" placeholder="Enter target phrase" />
+                    
+                    <div class="divider-text">OR</div>
+                    
+                    <div class="control-group">
+                        <label>Video URL</label>
+                        <div class="input-with-icon">
+                            <svg class="input-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"></path><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"></path></svg>
+                            <input type="text" id="video-url" class="input-field" placeholder="Enter video URL..." />
+                        </div>
+                    </div>
                 </div>
 
-                <div class="control-group">
-                    <div class="label-with-icon">
-                        <label for="search-mode">ASR</label>
+                <div class="section-block">
+                    <div class="section-title"><span></span> TARGET PHRASE</div>
+                    <div class="input-with-icon">
+                        <input type="text" id="search-text" class="input-field" placeholder="Enter target phrase..." />
+                        <svg class="input-icon-right" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="4 7 4 4 20 4 20 7"></polyline><line x1="9" y1="20" x2="15" y2="20"></line><line x1="12" y1="4" x2="12" y2="20"></line></svg>
                     </div>
-                    <div class="select-wrapper">
+                </div>
+
+                <div class="section-block">
+                    <div class="section-title"><span></span> SEARCH MODE</div>
+                    <div class="input-with-icon">
                         <select id="search-mode" class="input-field">
                             <option value="asr_only">Select ASR model</option>
                             <option value="asr_ocr" selected>ASR + OCR (Fine)</option>
                             <option value="ocr_only">OCR Only</option>
                         </select>
                     </div>
+                    <div class="help-text">Combines voice recognition and text detection</div>
                 </div>
 
-                <button id="run-btn" class="primary-btn">
-                    <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"></circle><polygon points="10 8 16 12 10 16 10 8"></polygon></svg>
-                    <span>Run pipe</span>
+                <button id="run-btn" class="primary-btn-large">
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="5 3 19 12 5 21 5 3"></polygon></svg>
+                    <span>Run Pipeline</span>
                 </button>
-                <div id="status-msg" class="status-msg"></div>
+                
+                <div class="status-block">
+                    <div class="section-title"><span></span> STATUS</div>
+                    <div id="status-msg" class="status-msg success">
+                        <div class="status-dot"></div> Ready to process
+                    </div>
+                </div>
             </div>
         </aside>
 
         <!-- Main Content -->
-        <section class="main-content">
-            <div class="content-inner" id="history-container">
-                <!-- History cards will be prepended here -->
+        <section class="main-content" id="main-content-area">
+            <div id="main-empty-state" class="empty-state">
+                <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="var(--border-color)" stroke-width="1.5"><circle cx="11" cy="11" r="8"></circle><line x1="21" y1="21" x2="16.65" y2="16.65"></line></svg>
+                <div class="empty-text">No active search</div>
+            </div>
+            <div class="content-inner" id="current-result-container" style="display: none; background: transparent; border: none; box-shadow: none; padding: 0;">
+                <!-- Latest search result will appear here -->
             </div>
         </section>
     </main>
 
-    <script src="script.js?v=21"></script>
+    <script src="script.js?v=24"></script>
 </body>
 </html>

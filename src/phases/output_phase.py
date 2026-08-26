@@ -4,7 +4,7 @@ from pathlib import Path
 from src.core.config import log
 from src.core.models import VideoMeta, MatchResult
 
-def phase4_output(meta: VideoMeta, best: MatchResult, session_id: str, work_dir: Path) -> None:
+def phase4_output(meta: VideoMeta, best: MatchResult, session_id: str, work_dir: Path, elapsed: float = 0.0) -> None:
     log.info("=== Phase 4: Output Generation ===")
 
     metadata_dir = work_dir / "output_metadata"
@@ -24,6 +24,7 @@ def phase4_output(meta: VideoMeta, best: MatchResult, session_id: str, work_dir:
             "extracted_text": "",
             "confidence_score": 0.0,
             "status": "NOT_FOUND",
+            "processing_time": round(elapsed, 2),
             "image_path": ""
         }
         manifest_path.write_text(json.dumps(manifest, indent=2))
@@ -53,6 +54,8 @@ def phase4_output(meta: VideoMeta, best: MatchResult, session_id: str, work_dir:
         "extracted_text": best.extracted_text,
         "confidence_score": round(best.confidence, 2),
         "status": best.status,
+        "asd_status": best.asd_status,
+        "processing_time": round(elapsed, 2),
         "image_path": str(frame_path.resolve()) if ret else ""
     }
     manifest_path.write_text(json.dumps(manifest, indent=2))

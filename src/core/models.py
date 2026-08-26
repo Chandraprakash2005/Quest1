@@ -16,6 +16,7 @@ class MatchResult:
     extracted_text: str = ""
     confidence: float = 0.0
     status: str = "NOT_FOUND"
+    asd_status: str = ""
 
 @dataclass
 class SearchWindow:

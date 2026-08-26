@@ -128,28 +128,81 @@ def phase1_asr(meta: VideoMeta, target: str) -> tuple:
             all_words = None
 
         if not all_words:
-            log.info("ASR cache miss. Running Whisper over entire audio...")
+            log.info("ASR cache miss. Running Hybrid Whisper sweep...")
             import re
             try:
-                model = get_whisper_model("medium.en")
-                segments_iter, _ = model.transcribe(
-                    meta.audio_path, 
-                    language="en", 
-                    word_timestamps=True,
-                    vad_filter=False,
-                    beam_size=2,
-                    condition_on_previous_text=False
+                # Pass 1: Small (high accuracy) sweep FIRST (Lazy Evaluation)
+                log.info("Running high-accuracy sweep (small.en)...")
+                small_model = get_whisper_model("small.en")
+                small_iter, _ = small_model.transcribe(
+                    meta.audio_path, language="en", word_timestamps=True, vad_filter=False, beam_size=2, condition_on_previous_text=False
                 )
-                
-                all_words = []
-                for seg in segments_iter:
-                    words = seg.words if hasattr(seg, "words") else seg.get("words", [])
-                    for w in words:
-                        w_text = w.word if hasattr(w, "word") else w.get("word", "")
-                        w_start = w.start if hasattr(w, "start") else w.get("start", 0)
-                        w_end = w.end if hasattr(w, "end") else w.get("end", 0)
-                        w_clean = re.sub(r'[^\w]', '', w_text).lower()
-                        all_words.append({"word": w_text, "start": w_start, "end": w_end, "clean": w_clean})
+                small_words = []
+                for seg in small_iter:
+                    words_list = seg.get("words", []) if isinstance(seg, dict) else getattr(seg, "words", [])
+                    if not words_list: continue
+                    for w in words_list:
+                        w_text = w.get("word", "") if isinstance(w, dict) else getattr(w, "word", "")
+                        w_start = w.get("start", 0) if isinstance(w, dict) else getattr(w, "start", 0)
+                        w_end = w.get("end", 0) if isinstance(w, dict) else getattr(w, "end", 0)
+                        small_words.append({"word": w_text, "start": w_start, "end": w_end})
+                        
+                # Hybrid merge logic: check for all gaps > 5.0 seconds
+                gaps = []
+                if small_words and small_words[0]["start"] > 5.0:
+                    gaps.append((0.0, small_words[0]["start"]))
+                    
+                for i in range(len(small_words) - 1):
+                    g_start = small_words[i]["end"]
+                    g_end = small_words[i+1]["start"]
+                    if (g_end - g_start) > 5.0:
+                        gaps.append((g_start, g_end))
+                        
+                if small_words and hasattr(meta, "duration") and (meta.duration - small_words[-1]["end"]) > 5.0:
+                    gaps.append((small_words[-1]["end"], meta.duration))
+                    
+                if gaps:
+                    log.info("Detected %d gaps > 5.0s. Fast-cropping for tiny.en sweep...", len(gaps))
+                    import subprocess, tempfile, os
+                    fallback_model = get_whisper_model("tiny.en")
+                    fallback_words = []
+                    
+                    for (g_start, g_end) in gaps:
+                        gap_audio = os.path.join(tempfile.gettempdir(), f"gap_{video_id}_{g_start}.wav")
+                        duration = g_end - g_start
+                        subprocess.run(["ffmpeg", "-y", "-i", meta.audio_path, "-ss", str(g_start), "-t", str(duration), "-c", "copy", gap_audio], capture_output=True)
+                        
+                        fallback_iter, _ = fallback_model.transcribe(
+                            gap_audio, language="en", word_timestamps=True, vad_filter=False, beam_size=1, condition_on_previous_text=False
+                        )
+                        
+                        for seg in fallback_iter:
+                            words_list = seg.get("words", []) if isinstance(seg, dict) else getattr(seg, "words", [])
+                            if not words_list: continue
+                            for w in words_list:
+                                w_text = w.get("word", "") if isinstance(w, dict) else getattr(w, "word", "")
+                                w_start = w.get("start", 0) if isinstance(w, dict) else getattr(w, "start", 0)
+                                w_end = w.get("end", 0) if isinstance(w, dict) else getattr(w, "end", 0)
+                                # Offset timestamps relative to the crop
+                                fallback_words.append({"word": w_text, "start": w_start + g_start, "end": w_end + g_start})
+                        
+                        if os.path.exists(gap_audio):
+                            try: os.remove(gap_audio)
+                            except: pass
+                            
+                    # Merge and sort
+                    merged_words = small_words + fallback_words
+                    merged_words.sort(key=lambda x: x["start"])
+                    
+                    all_words = []
+                    for w in merged_words:
+                        w_clean = re.sub(r'[^\w]', '', w["word"]).lower()
+                        all_words.append({"word": w["word"], "start": w["start"], "end": w["end"], "clean": w_clean})
+                else:
+                    all_words = []
+                    for w in small_words:
+                        w_clean = re.sub(r'[^\w]', '', w["word"]).lower()
+                        all_words.append({"word": w["word"], "start": w["start"], "end": w["end"], "clean": w_clean})
                         
                 with open(cache_file, "w") as f:
                     json.dump(all_words, f, indent=2)
@@ -161,7 +214,11 @@ def phase1_asr(meta: VideoMeta, target: str) -> tuple:
                 return SearchWindow(0.0, meta.duration), None
 
     words = all_words
-    target_words = target.split()
+    import re
+    
+    # Globally normalize the target string: replace punctuation with spaces to properly separate hyphenated words
+    target_normalized = re.sub(r'[^\w\s]', ' ', target).lower()
+    target_words = target_normalized.split()
     n_target_words = len(target_words)
     
     best_score = 0.0
@@ -182,8 +239,7 @@ def phase1_asr(meta: VideoMeta, target: str) -> tuple:
         log.info("Exact match found: score=%.0f at t=%.2fs text='%s'", exact_score, exact_time, best_text[:80])
     elif n_target_words >= 3:
         log.info("ASR Strategy 2: Fuzzy sliding window (target has %d words)", n_target_words)
-        target_clean = target.lower()
-        import re
+        target_clean = " ".join(target_words)
         cleaned_words = [w.get("clean", re.sub(r'[^\w]', '', w["word"]).lower()) for w in words]
         
         for i in range(len(words)):
