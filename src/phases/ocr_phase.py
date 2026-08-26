@@ -20,7 +20,8 @@ def get_video_id(meta: VideoMeta) -> str:
     return hashlib.md5(meta.video_path.encode()).hexdigest()
 
 def get_cache_dir(meta: VideoMeta) -> Path:
-    d = Path("output") / "ocr_cache" / get_video_id(meta)
+    from src.core.config import OUTPUT_DIR
+    d = OUTPUT_DIR / "ocr_cache" / get_video_id(meta)
     d.mkdir(parents=True, exist_ok=True)
     return d
 
@@ -68,13 +69,14 @@ def save_cache(meta: VideoMeta, new_samples: list, window: SearchWindow):
     with open(meta_path, 'w') as f:
         json.dump({"video_path": meta.video_path, "ranges": ranges}, f, indent=4)
 
-def build_ocr_cache(meta: VideoMeta, ocr_engine: OCREngine, window: SearchWindow) -> None:
+def build_ocr_cache(meta: VideoMeta, ocr_engine: OCREngine, window: SearchWindow, status_callback=None) -> None:
     num_workers = min(2, (os.cpu_count() or 2))
     duration = window.end - window.start
     chunk_duration = duration / num_workers
     chunks = [(window.start + i * chunk_duration, window.start + (i + 1) * chunk_duration if i < num_workers - 1 else window.end) for i in range(num_workers)]
     
     all_blocks = []
+    progress_dict = {i: 0.0 for i in range(num_workers)}
     
     def process_chunk(chunk_id: int, start_ts: float, end_ts: float) -> list:
         cap = cv2.VideoCapture(meta.video_path)
@@ -90,7 +92,11 @@ def build_ocr_cache(meta: VideoMeta, ocr_engine: OCREngine, window: SearchWindow
         while ts <= end_ts:
             if ts - last_log_ts >= 30:
                 pct = ((ts - start_ts) / (end_ts - start_ts + 0.1)) * 100
-                log.info("OCR Thread %d: %.1f%% complete", chunk_id, pct)
+                progress_dict[chunk_id] = pct
+                avg_pct = sum(progress_dict.values()) / num_workers
+                log.info("OCR Thread %d: %.1f%% complete (Overall: %.1f%%)", chunk_id, pct, avg_pct)
+                if status_callback:
+                    status_callback("node-ocr", f"Running full video OCR scan... {avg_pct:.1f}%", avg_pct)
                 last_log_ts = ts
 
             target_frame = int(ts * fps)
@@ -162,12 +168,12 @@ def build_ocr_cache(meta: VideoMeta, ocr_engine: OCREngine, window: SearchWindow
                 
     save_cache(meta, all_blocks, window)
 
-def phase2_coarse_ocr(meta: VideoMeta, ocr_engine: OCREngine, window: SearchWindow, target: str) -> tuple:
+def phase2_coarse_ocr(meta: VideoMeta, ocr_engine: OCREngine, window: SearchWindow, target: str, status_callback=None) -> tuple:
     log.info("=== Phase 2: Coarse Sampled OCR ===")
     
     if not is_window_cached(meta, window):
         log.info("OCR cache miss for window [%.2f, %.2f]. Building cache...", window.start, window.end)
-        build_ocr_cache(meta, ocr_engine, window)
+        build_ocr_cache(meta, ocr_engine, window, status_callback)
     else:
         log.info("Using persistent cached OCR transcript for window [%.2f, %.2f]", window.start, window.end)
         

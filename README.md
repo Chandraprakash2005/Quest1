@@ -1,4 +1,4 @@
-# 🎯 Video Dialogue Frame Detector
+# Video Dialogue Frame Detector
 
 > Automatically pinpoint the **exact video frame** where a specific line of dialogue appears on-screen, using a multi-modal ASR + OCR pipeline — no VLMs or LLMs required.
 
@@ -14,22 +14,26 @@ This tool downloads a video, runs speech recognition to narrow the search window
 You need to install system dependencies (FFmpeg) and python dependencies to run this app.
 
 **System Requirements:**
+
 - **Python 3.10+**
-**System Dependencies (FFmpeg & uv):**
+  **System Dependencies (FFmpeg & uv):**
 
 **Windows (PowerShell):**
+
 ```powershell
 winget install --id Gyan.FFmpeg -e --source winget
 powershell -ExecutionPolicy ByPass -c "irm https://astral.sh/uv/install.ps1 | iex"
 ```
 
 **macOS (Homebrew):**
+
 ```bash
 brew install ffmpeg
 curl -LsSf https://astral.sh/uv/install.sh | sh
 ```
 
 **Linux (Debian/Ubuntu):**
+
 ```bash
 sudo apt update && sudo apt install ffmpeg
 curl -LsSf https://astral.sh/uv/install.sh | sh
@@ -39,6 +43,7 @@ curl -LsSf https://astral.sh/uv/install.sh | sh
 Choose your operating system below and copy-paste the entire block into your terminal to set up the project in one go:
 
 **Windows (PowerShell):**
+
 ```powershell
 git clone https://github.com/your-username/Quest1.git
 cd Quest1
@@ -48,6 +53,7 @@ uv pip install -r requirements.txt
 ```
 
 **macOS / Linux:**
+
 ```bash
 git clone https://github.com/your-username/Quest1.git
 cd Quest1
@@ -63,18 +69,21 @@ uv pip install -r requirements.txt
 To run the whole application, you just need to start the backend server. The Web UI is the primary way to interact with the detector.
 
 **Step 1: Start the server**
+
 ```bash
 python src/server.py
 ```
-*(Leave this terminal window running)*
+
+_(Leave this terminal window running)_
 
 **Step 2: Open the Dashboard**
 Open your web browser and go to: **http://localhost:8000**
 
 **Step 3: Using the App**
+
 1. **Source:** Choose a local video from the `assets/video` folder or paste a remote URL.
 2. **Target Phrase:** Enter the dialogue to search for.
-3. **Mode:** Select **ASR + OCR (Fine)** for the best accuracy.
+3. **Method:** Select **Voice + On-Screen Text (Best Accuracy)** for the best results.
 4. **Run:** Click "Run Pipeline" and watch the live progress until the frame is found!
 
 ## Output

@@ -2,6 +2,7 @@ import os
 import sys
 import json
 import time
+import uuid
 import logging
 import shutil
 from pathlib import Path
@@ -25,6 +26,18 @@ class DialogueAPIHandler(SimpleHTTPRequestHandler):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, directory=str(FRONTEND_DIR), **kwargs)
 
+    def log_message(self, format, *args):
+        # Prevent the constant /api/status polling from spamming the console
+        if len(args) > 0 and isinstance(args[0], str) and "/api/status" in args[0]:
+            return
+        super().log_message(format, *args)
+
+    def end_headers(self):
+        self.send_header('Cache-Control', 'no-store, no-cache, must-revalidate, max-age=0')
+        self.send_header('Pragma', 'no-cache')
+        self.send_header('Expires', '0')
+        super().end_headers()
+
     def do_GET(self):
         if self.path.startswith("/api/frame"):
             query = urllib.parse.urlparse(self.path).query
@@ -44,6 +57,21 @@ class DialogueAPIHandler(SimpleHTTPRequestHandler):
                     self.wfile.write(f.read())
             else:
                 self.send_error(404, "Frame not found")
+            return
+            
+        if self.path.startswith("/assets/video/"):
+            original_path = self.path
+            original_dir = getattr(self, 'directory', str(FRONTEND_DIR))
+            
+            self.path = "/" + urllib.parse.unquote(original_path.split("/")[-1])
+            self.directory = str(ASSETS_DIR / "video")
+            try:
+                super().do_GET()
+            except (ConnectionAbortedError, ConnectionResetError, BrokenPipeError):
+                pass
+            finally:
+                self.path = original_path
+                self.directory = original_dir
             return
             
         if self.path == "/api/history":
@@ -85,7 +113,10 @@ class DialogueAPIHandler(SimpleHTTPRequestHandler):
             return
 
         # Serve frontend static files
-        super().do_GET()
+        try:
+            super().do_GET()
+        except (ConnectionAbortedError, ConnectionResetError, BrokenPipeError):
+            log.warning("Client disconnected before GET response could be sent.")
 
     def do_POST(self):
         content_length = int(self.headers.get('Content-Length', 0))
@@ -135,19 +166,47 @@ class DialogueAPIHandler(SimpleHTTPRequestHandler):
             try:
                 t_start = time.time()
                 
-                def status_cb(node, msg):
+                def status_cb(node, msg, progress=None):
                     GLOBAL_STATUS["node"] = node
                     GLOBAL_STATUS["msg"] = msg
+                    if progress is not None:
+                        GLOBAL_STATUS["progress"] = progress
+                    else:
+                        GLOBAL_STATUS.pop("progress", None)
 
-                detector = DialogueDetector(url=url, target_dialogue=target, mode=mode, local_video=local_video_path_str, work_dir=str(OUTPUT_DIR), status_callback=status_cb)
+                detector = DialogueDetector(url=url, target_dialogue=target, mode=mode, local_video=local_video_path_str, work_dir=str(OUTPUT_DIR), assets_dir=str(ASSETS_DIR), status_callback=status_cb)
                 
                 result = detector.run()
                 elapsed = time.time() - t_start
                 
-                # Check if video was successfully ingested
-                if not Path(detector.meta.video_path).exists():
-                    self._send_json(400, {"error": "Video download failed or file missing. Try again."})
-                    return
+                # Safe check if video metadata was ingested
+                video_filename = ""
+                clip_start_time = 0.0
+                if hasattr(detector, "meta") and detector.meta and detector.meta.video_path:
+                    video_path_obj = Path(detector.meta.video_path)
+                    if video_path_obj.exists():
+                        video_filename = video_path_obj.name
+                        
+                        # Physically cut the video clip from -6 to +6 seconds
+                        if result and result.status != "NOT_FOUND" and result.timestamp > 0:
+                            import subprocess
+                            clip_name = f"clip_{detector.session_id}_{video_filename}"
+                            clips_dir = ASSETS_DIR / "video" / "clips"
+                            clips_dir.mkdir(parents=True, exist_ok=True)
+                            clip_path = clips_dir / clip_name
+                            clip_start_time = max(0.0, result.timestamp - 6.0)
+                            
+                            try:
+                                subprocess.run([
+                                    "ffmpeg", "-y", "-i", str(video_path_obj), 
+                                    "-ss", str(clip_start_time), "-t", "12.0", 
+                                    "-c", "copy", str(clip_path)
+                                ], capture_output=True, check=True)
+                                
+                                if clip_path.exists():
+                                    video_filename = f"clips/{clip_name}"
+                            except Exception as e:
+                                print("Error clipping video:", e)
                 
                 # Return the result and manifest contents
                 metadata_dir = OUTPUT_DIR / "output_metadata"
@@ -161,8 +220,23 @@ class DialogueAPIHandler(SimpleHTTPRequestHandler):
                     # Inject target_text so history knows what we searched for
                     manifest_data["target_text"] = target
                     manifest_data["mode"] = mode
+                    manifest_data["video_file"] = video_filename or local_video_path_str or "video"
+                    manifest_data["clip_start_time"] = clip_start_time
                     with open(manifest_path, 'w') as f:
                         json.dump(manifest_data, f, indent=2)
+                else:
+                    manifest_data = {
+                        "timestamp": "00:00:00.000",
+                        "frame_number": 0,
+                        "extracted_text": "",
+                        "confidence_score": 0.0,
+                        "status": "NOT_FOUND",
+                        "processing_time": round(elapsed, 2),
+                        "target_text": target,
+                        "mode": mode,
+                        "video_file": video_filename or local_video_path_str or "video",
+                        "clip_start_time": 0.0
+                    }
                 
                 self._send_json(200, {
                     "status": "success", 
@@ -170,6 +244,43 @@ class DialogueAPIHandler(SimpleHTTPRequestHandler):
                     "session_id": detector.session_id,
                     "result": manifest_data
                 })
+            except Exception as e:
+                import traceback
+                traceback.print_exc()
+                self._send_json(200, {
+                    "status": "success",
+                    "elapsed": 0.0,
+                    "session_id": "err_" + uuid.uuid4().hex[:8],
+                    "result": {
+                        "status": "NOT_FOUND",
+                        "confidence_score": 0.0,
+                        "timestamp": "00:00:00.000",
+                        "extracted_text": "",
+                        "target_text": target if 'target' in locals() else "",
+                        "mode": mode if 'mode' in locals() else "asr_ocr",
+                        "video_file": local_video_path_str if 'local_video_path_str' in locals() else "video",
+                        "error_detail": str(e)
+                    }
+                })
+    def do_DELETE(self):
+        if self.path == '/api/cache':
+            try:
+                # Clear output directory (processed files)
+                if OUTPUT_DIR.exists():
+                    for item in OUTPUT_DIR.iterdir():
+                        if item.is_file():
+                            item.unlink()
+                        elif item.is_dir():
+                            shutil.rmtree(item)
+                
+                # Clear RAM cache
+                try:
+                    from src.phases.asr_phase import _TRANSCRIPT_CACHE
+                    _TRANSCRIPT_CACHE.clear()
+                except Exception as e:
+                    log.warning(f"Could not clear RAM cache: {e}")
+                            
+                self._send_json(200, {"status": "success", "msg": "Cache cleared"})
             except Exception as e:
                 self._send_json(500, {"error": str(e)})
         else:

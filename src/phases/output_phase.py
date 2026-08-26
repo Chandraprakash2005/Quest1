@@ -17,7 +17,12 @@ def phase4_output(meta: VideoMeta, best: MatchResult, session_id: str, work_dir:
     manifest_path = metadata_dir / f"manifest_{session_id}.json"
 
     if best.status == "NOT_FOUND":
-        log.warning("No match found. Writing empty manifest.")
+        log.warning("No match found. Writing fallback frame and empty manifest.")
+        cap = cv2.VideoCapture(meta.video_path)
+        ret, frame = cap.read()
+        cap.release()
+        if ret:
+            cv2.imwrite(str(frame_path), frame)
         manifest = {
             "timestamp": "00:00:00.000",
             "frame_number": 0,
@@ -25,7 +30,7 @@ def phase4_output(meta: VideoMeta, best: MatchResult, session_id: str, work_dir:
             "confidence_score": 0.0,
             "status": "NOT_FOUND",
             "processing_time": round(elapsed, 2),
-            "image_path": ""
+            "image_path": str(frame_path.resolve()) if ret else ""
         }
         manifest_path.write_text(json.dumps(manifest, indent=2))
         log.info("Manifest written to %s", manifest_path)

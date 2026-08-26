@@ -24,6 +24,9 @@ CONFIDENCE_OK = 85
 CONFIDENCE_LOW = 70
 REFINE_PASS_A = 0.1
 REFINE_PASS_B = 0.01
+BASE_DIR = Path(__file__).resolve().parent.parent.parent
+OUTPUT_DIR = BASE_DIR / "output"
+
 OUTPUT_FRAME = "output_frame.png"
 OUTPUT_MANIFEST = "manifest.json"
 

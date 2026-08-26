@@ -5,7 +5,7 @@ from src.core.config import log
 from src.core.models import VideoMeta
 from src.utils.downloader import VideoDownloader
 
-def phase0_ingest(url: str, local_video: str, assets_dir: Path) -> VideoMeta:
+def phase0_ingest(url: str, local_video: str, assets_dir: Path, status_callback=None) -> VideoMeta:
     log.info("=== Phase 0: Ingestion & Probing ===")
     video_dir = assets_dir / "video"
     audio_dir = assets_dir / "audio"
@@ -22,7 +22,7 @@ def phase0_ingest(url: str, local_video: str, assets_dir: Path) -> VideoMeta:
     else:
         log.info("Downloading video from %s ...", url)
         try:
-            video_path = VideoDownloader.download(url, assets_dir)
+            video_path = VideoDownloader.download(url, assets_dir, status_callback)
             log.info("Download complete/verified: %s", video_path)
         except Exception as exc:
             log.error("Download failed: %s", exc)
@@ -61,6 +61,8 @@ def phase0_ingest(url: str, local_video: str, assets_dir: Path) -> VideoMeta:
 
     if not audio_path.exists():
         log.info("Extracting audio track...")
+        if status_callback:
+            status_callback("node-media", "Extracting audio track from video...", 95.0)
         audio_cmd = [
             "ffmpeg", "-y", "-i", str(video_path),
             "-vn", "-acodec", "pcm_s16le", "-ar", "16000", "-ac", "1",

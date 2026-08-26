@@ -53,7 +53,8 @@ def phase_asd(meta: VideoMeta, asr_best: MatchResult, window: SearchWindow) -> d
     log.info("=== Phase ASD: TalkNet Speaker Classification ===")
     
     video_id = Path(meta.video_path).stem if meta.video_path else "unknown_video"
-    asd_dir = Path("output/asd_cache") / video_id
+    from src.core.config import OUTPUT_DIR
+    asd_dir = OUTPUT_DIR / "asd_cache" / video_id
     asd_dir.mkdir(parents=True, exist_ok=True)
     cache_file = asd_dir / "asd_results.json"
     
