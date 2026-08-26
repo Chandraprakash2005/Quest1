@@ -18,21 +18,32 @@ def get_whisper_model(model_size: str = "small.en"):
         raise e
         
     try:
-        log.info(f"[ASR_ENGINE] Attempting to load faster-whisper '{model_size}' on GPU (cuda) with float16...")
-        _WHISPER_MODELS[model_size] = WhisperModel(model_size, device="cuda", compute_type="float16")
-        log.info("[ASR_ENGINE] GPU load successful (float16).")
-    except Exception as e_cuda_fp16:
-        log.warning(f"[ASR_ENGINE] GPU float16 load failed ({e_cuda_fp16}). Trying GPU float32...")
+        import torch
+        has_gpu = torch.cuda.is_available()
+    except ImportError:
+        has_gpu = False
+
+    if has_gpu:
         try:
-            _WHISPER_MODELS[model_size] = WhisperModel(model_size, device="cuda", compute_type="float32")
-            log.info("[ASR_ENGINE] GPU load successful (float32).")
-        except Exception as e_cuda_fp32:
-            log.warning(f"[ASR_ENGINE] GPU load failed entirely ({e_cuda_fp32}). Falling back to CPU...")
+            log.info(f"[ASR_ENGINE] GPU detected. Attempting to load '{model_size}' on GPU with float16...")
+            _WHISPER_MODELS[model_size] = WhisperModel(model_size, device="cuda", compute_type="float16")
+            log.info("[ASR_ENGINE] GPU load successful (float16).")
+        except Exception as e_cuda_fp16:
+            log.warning(f"[ASR_ENGINE] GPU float16 load failed ({e_cuda_fp16}). Trying GPU float32...")
             try:
-                _WHISPER_MODELS[model_size] = WhisperModel(model_size, device="cpu", compute_type="int8")
-                log.info("[ASR_ENGINE] CPU load successful.")
-            except Exception as e_cpu:
-                log.error(f"[ASR_ENGINE] CPU load failed: {e_cpu}")
-                raise e_cpu
+                _WHISPER_MODELS[model_size] = WhisperModel(model_size, device="cuda", compute_type="float32")
+                log.info("[ASR_ENGINE] GPU load successful (float32).")
+            except Exception as e_cuda_fp32:
+                log.warning(f"[ASR_ENGINE] GPU load failed entirely ({e_cuda_fp32}). Falling back to CPU...")
+                has_gpu = False
+                
+    if not has_gpu:
+        try:
+            log.info(f"[ASR_ENGINE] No compatible GPU found. Loading '{model_size}' safely on CPU...")
+            _WHISPER_MODELS[model_size] = WhisperModel(model_size, device="cpu", compute_type="int8")
+            log.info("[ASR_ENGINE] CPU load successful.")
+        except Exception as e_cpu:
+            log.error(f"[ASR_ENGINE] CPU load failed: {e_cpu}")
+            raise e_cpu
         
     return _WHISPER_MODELS[model_size]
