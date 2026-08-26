@@ -72,10 +72,19 @@ class DialogueDetector:
                 # If OCR refinement didn't find subtitles (confidence is 0 or below ASR confidence), fall back to ASR
                 if self.best.status == "NOT_FOUND" or self.best.confidence == 0 or self.best.confidence < self.asr_best.confidence:
                     log.warning("OCR refinement found no subtitles. Falling back to ASR transcription: '%s' (%.1f%%)", self.asr_best.extracted_text, self.asr_best.confidence)
-                    # Use the frame number from the refined timestamp if available, but keep ASR transcript and confidence
-                    if self.best.frame_number > 0 and self.asr_best.frame_number == 0:
-                        self.asr_best.frame_number = self.best.frame_number
+                    
+                    # Preserve the OCR timestamp if it found any frames, even with lower confidence
+                    ocr_timestamp = self.best.timestamp
+                    ocr_frame = self.best.frame_number
+                    ocr_confidence = self.best.confidence
+                    
                     self.best = self.asr_best
+                    
+                    if ocr_timestamp > 0 and ocr_confidence > 0:
+                        self.best.timestamp = ocr_timestamp
+                        self.best.frame_number = ocr_frame
+                    elif ocr_frame > 0 and self.asr_best.frame_number == 0:
+                        self.best.frame_number = ocr_frame
                 
                 # Run ASD Phase for dual mode if we have a valid ASR anchor
                 if self.status_callback: self.status_callback("node-asd", "Detecting active speakers (ASD)...")
