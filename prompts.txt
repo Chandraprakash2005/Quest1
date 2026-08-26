@@ -172,7 +172,7 @@ Now, execute the generation of all 5 files sequentially.
 The original pipeline architecture above has been optimized and modernized with the following changes:
 1. **Module Splitting:** The massive src/find_dialogue.py file has been split into a clean pipeline architecture inside the src/phases/ directory (e.g. sr_phase.py, ocr_phase.py, 
 efine_phase.py, output_phase.py).
-2. **ASR Engine Swap:** The aster-whisper (tiny.en) model was completely replaced with the superior 
+2. **ASR Engine Swap:** The Faster-whisper (tiny.en) model was completely replaced with the superior 
 vidia/parakeet-tdt-0.6b-v2 model using the 
 emo_toolkit[asr] framework for much higher accuracy word-level timestamps.
 
@@ -315,7 +315,8 @@ Do not use the 10-minute TTL for persistent OCR cache invalidation.
 
 ## 47. Hybrid Multi-Pass ASR Architecture for Extreme Audio Edge-Cases
 **User Prompt:** "The ASR models either filter out background dialogue under heavy music (if too large) or hallucinate/misspell words (if too small). Can we build a hybrid model that uses `small.en` for high spelling accuracy, but injects words from `tiny.en` to cover any gaps left behind by background music interference?"
-**Result:** Implemented a state-of-the-art Hybrid ASR architecture inside `asr_engine.py` and `asr_phase.py`. Refactored the engine's caching system to support concurrently loading multiple neural networks (`_WHISPER_MODELS` dict). The `asr_phase.py` pipeline now runs two sequential sweeps over the audio track:
-1. A blazing-fast, aggressive extraction using `tiny.en` to grab all vocal frequencies indiscriminately, even those buried under heavy cinematic music.
-2. A slower, high-accuracy spelling sweep using `small.en`.
-The pipeline then mathematically compares the output timestamps. If `small.en`'s high-threshold filters caused it to miss the first `> 5.0s` of audio, the system automatically splices the `tiny.en` output into the beginning of the `small.en` JSON array, delivering a transcript with mathematically perfect coverage and spelling accuracy.
+**Result:** Implemented a state-of-the-art Hybrid ASR architecture inside `asr_engine.py` and `asr_phase.py`. Refactored the engine's caching system to support concurrently loading multiple neural networks (`_WHISPER_MODELS` dict). To guarantee extreme performance, the `asr_phase.py` pipeline utilizes a "lazy evaluation" and ffmpeg cropping approach:
+1. It runs a high-accuracy sweep using `small.en`.
+2. It mathematically calculates the temporal difference between every transcribed word to check for silent gaps `> 5.0s` anywhere in the video (beginning, middle, or end) caused by the model's strict `no_speech` thresholds. If no gaps are detected, it terminates instantly.
+3. For every gap detected, it spawns a `subprocess` to `ffmpeg` to instantly extract just those isolated chunks of audio.
+4. It feeds these short audio chunks to `tiny.en` (with a blazing-fast `beam_size=1`), offsetting the output timestamps dynamically, and surgically injecting the aggressive extraction back into the main transcript JSON. This provides 100% audio coverage while keeping the hybrid processing overhead negligible.

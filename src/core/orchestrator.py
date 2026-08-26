@@ -76,8 +76,7 @@ class DialogueDetector:
             if t_coarse is not None:
                 self.best = phase3_refine(self.meta, self.ocr, t_coarse, self.target, self.mode, self.best)
 
-        phase4_output(self.meta, self.best, self.session_id, self.work_dir)
-
         elapsed = time.time() - t0
+        phase4_output(self.meta, self.best, self.session_id, self.work_dir, elapsed)
         log.info("Pipeline completed in %.1fs", elapsed)
         return self.best

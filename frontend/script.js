@@ -142,10 +142,10 @@ function renderHistoryCard(resultData, sessionId, targetText, prepend = true) {
                         </div>
                         <div class="history-metric-box">
                             <div class="history-metric-header">
-                                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="8" y1="6" x2="21" y2="6"></line><line x1="8" y1="12" x2="21" y2="12"></line><line x1="8" y1="18" x2="21" y2="18"></line><line x1="3" y1="6" x2="3.01" y2="6"></line><line x1="3" y1="12" x2="3.01" y2="12"></line><line x1="3" y1="18" x2="3.01" y2="18"></line></svg>
-                                <span class="history-metric-label">WORDS</span>
+                                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="14" r="8"></circle><line x1="12" y1="2" x2="12" y2="6"></line><line x1="8" y1="2" x2="16" y2="2"></line></svg>
+                                <span class="history-metric-label">TIME</span>
                             </div>
-                            <span class="history-metric-value">${wordCount}</span>
+                            <span class="history-metric-value">${resultData.processing_time !== undefined ? resultData.processing_time + 's' : '0.0s'}</span>
                         </div>
                         <div class="history-metric-box">
                             <div class="history-metric-header">

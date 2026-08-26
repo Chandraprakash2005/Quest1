@@ -131,22 +131,8 @@ def phase1_asr(meta: VideoMeta, target: str) -> tuple:
             log.info("ASR cache miss. Running Hybrid Whisper sweep...")
             import re
             try:
-                # Pass 1: Tiny (fast & aggressive)
-                tiny_model = get_whisper_model("tiny.en")
-                tiny_iter, _ = tiny_model.transcribe(
-                    meta.audio_path, language="en", word_timestamps=True, vad_filter=False, beam_size=5, condition_on_previous_text=True
-                )
-                tiny_words = []
-                for seg in tiny_iter:
-                    words_list = seg.get("words", []) if isinstance(seg, dict) else getattr(seg, "words", [])
-                    if not words_list: continue
-                    for w in words_list:
-                        w_text = w.get("word", "") if isinstance(w, dict) else getattr(w, "word", "")
-                        w_start = w.get("start", 0) if isinstance(w, dict) else getattr(w, "start", 0)
-                        w_end = w.get("end", 0) if isinstance(w, dict) else getattr(w, "end", 0)
-                        tiny_words.append({"word": w_text, "start": w_start, "end": w_end})
-                
-                # Pass 2: Small (high accuracy)
+                # Pass 1: Small (high accuracy) sweep FIRST (Lazy Evaluation)
+                log.info("Running high-accuracy sweep (small.en)...")
                 small_model = get_whisper_model("small.en")
                 small_iter, _ = small_model.transcribe(
                     meta.audio_path, language="en", word_timestamps=True, vad_filter=False, beam_size=5, condition_on_previous_text=True
@@ -161,18 +147,62 @@ def phase1_asr(meta: VideoMeta, target: str) -> tuple:
                         w_end = w.get("end", 0) if isinstance(w, dict) else getattr(w, "end", 0)
                         small_words.append({"word": w_text, "start": w_start, "end": w_end})
                         
-                # Hybrid merge logic
-                all_words = []
-                first_small_start = small_words[0]["start"] if small_words else 0
-                if first_small_start > 5.0:
-                    for w in tiny_words:
-                        if w["end"] < first_small_start:
-                            w_clean = re.sub(r'[^\w]', '', w["word"]).lower()
-                            all_words.append({"word": w["word"], "start": w["start"], "end": w["end"], "clean": w_clean})
-                
-                for w in small_words:
-                    w_clean = re.sub(r'[^\w]', '', w["word"]).lower()
-                    all_words.append({"word": w["word"], "start": w["start"], "end": w["end"], "clean": w_clean})
+                # Hybrid merge logic: check for all gaps > 5.0 seconds
+                gaps = []
+                if small_words and small_words[0]["start"] > 5.0:
+                    gaps.append((0.0, small_words[0]["start"]))
+                    
+                for i in range(len(small_words) - 1):
+                    g_start = small_words[i]["end"]
+                    g_end = small_words[i+1]["start"]
+                    if (g_end - g_start) > 5.0:
+                        gaps.append((g_start, g_end))
+                        
+                if small_words and hasattr(meta, "duration") and (meta.duration - small_words[-1]["end"]) > 5.0:
+                    gaps.append((small_words[-1]["end"], meta.duration))
+                    
+                if gaps:
+                    log.info("Detected %d gaps > 5.0s. Fast-cropping for tiny.en sweep...", len(gaps))
+                    import subprocess, tempfile, os
+                    tiny_model = get_whisper_model("tiny.en")
+                    tiny_words = []
+                    
+                    for (g_start, g_end) in gaps:
+                        gap_audio = os.path.join(tempfile.gettempdir(), f"gap_{video_id}_{g_start}.wav")
+                        duration = g_end - g_start
+                        subprocess.run(["ffmpeg", "-y", "-i", meta.audio_path, "-ss", str(g_start), "-t", str(duration), "-c", "copy", gap_audio], capture_output=True)
+                        
+                        tiny_iter, _ = tiny_model.transcribe(
+                            gap_audio, language="en", word_timestamps=True, vad_filter=False, beam_size=1, condition_on_previous_text=False
+                        )
+                        
+                        for seg in tiny_iter:
+                            words_list = seg.get("words", []) if isinstance(seg, dict) else getattr(seg, "words", [])
+                            if not words_list: continue
+                            for w in words_list:
+                                w_text = w.get("word", "") if isinstance(w, dict) else getattr(w, "word", "")
+                                w_start = w.get("start", 0) if isinstance(w, dict) else getattr(w, "start", 0)
+                                w_end = w.get("end", 0) if isinstance(w, dict) else getattr(w, "end", 0)
+                                # Offset timestamps relative to the crop
+                                tiny_words.append({"word": w_text, "start": w_start + g_start, "end": w_end + g_start})
+                        
+                        if os.path.exists(gap_audio):
+                            try: os.remove(gap_audio)
+                            except: pass
+                            
+                    # Merge and sort
+                    merged_words = small_words + tiny_words
+                    merged_words.sort(key=lambda x: x["start"])
+                    
+                    all_words = []
+                    for w in merged_words:
+                        w_clean = re.sub(r'[^\w]', '', w["word"]).lower()
+                        all_words.append({"word": w["word"], "start": w["start"], "end": w["end"], "clean": w_clean})
+                else:
+                    all_words = []
+                    for w in small_words:
+                        w_clean = re.sub(r'[^\w]', '', w["word"]).lower()
+                        all_words.append({"word": w["word"], "start": w["start"], "end": w["end"], "clean": w_clean})
                         
                 with open(cache_file, "w") as f:
                     json.dump(all_words, f, indent=2)
