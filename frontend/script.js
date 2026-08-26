@@ -6,34 +6,6 @@ const runBtn = document.getElementById('run-btn');
 const statusMsg = document.getElementById('status-msg');
 const historyContainer = document.getElementById('history-container');
 
-const clearCacheBtn = document.getElementById('clear-cache-btn');
-if (clearCacheBtn) {
-    clearCacheBtn.addEventListener('click', async () => {
-        const confirmClear = confirm("Are you sure you want to clear all cached videos and processed data? This cannot be undone.");
-        if (!confirmClear) return;
-        
-        const originalText = clearCacheBtn.innerHTML;
-        clearCacheBtn.innerHTML = "Clearing...";
-        clearCacheBtn.disabled = true;
-        
-        try {
-            const resp = await fetch('/api/cache', { method: 'DELETE' });
-            if (resp.ok) {
-                showStatus("Cache cleared successfully. Please refresh the page.", "success");
-                if (typeof fetchVideos === 'function') {
-                    fetchVideos(); // Refetch videos so the dropdown stays populated
-                }
-            } else {
-                showStatus("Failed to clear cache.", "error");
-            }
-        } catch (e) {
-            showStatus("Error connecting to server.", "error");
-        } finally {
-            clearCacheBtn.innerHTML = originalText;
-            clearCacheBtn.disabled = false;
-        }
-    });
-}
 
 const historyDrawer = document.getElementById('history-drawer');
 const drawerOverlay = document.getElementById('drawer-overlay');
@@ -258,7 +230,7 @@ function renderHistoryCard(resultData, sessionId, targetText, prepend = true) {
 
         if (isNotFound) {
             cardHtml = `
-                <div class="editor-studio-card not-found-hero-card" style="position: relative !important; display: flex !important; flex-direction: column !important; height: 100% !important; width: 100% !important; overflow: hidden !important;">
+                <div class="editor-studio-card not-found-hero-card" style="position: relative !important; display: flex !important; flex-direction: column !important; height: 100% !important; width: 100% !important; overflow-y: auto !important; overflow-x: hidden !important;">
                     <!-- Top Bar -->
                     <div class="editor-top-bar">
                         <div class="editor-file-badge">
@@ -380,7 +352,7 @@ function renderHistoryCard(resultData, sessionId, targetText, prepend = true) {
             `;
         } else {
             cardHtml = `
-                <div class="editor-studio-card" style="position: relative !important; display: flex !important; flex-direction: column !important; height: 100% !important; width: 100% !important; overflow: hidden !important;">
+                <div class="editor-studio-card" style="position: relative !important; display: flex !important; flex-direction: column !important; height: 100% !important; width: 100% !important; overflow-y: auto !important; overflow-x: hidden !important;">
                     <!-- Header Toolbar -->
                     <div class="editor-top-bar">
                         <div class="editor-file-badge">

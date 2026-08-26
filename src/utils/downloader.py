@@ -26,7 +26,7 @@ class VideoDownloader:
                     "Chrome/126.0.0.0 Safari/537.36"
                 ),
             },
-            "cookiesfrombrowser": ("chrome",),
+            # "cookiesfrombrowser": ("chrome",), # Disabled due to DPAPI decryption errors on Windows
             "quiet": True,
             "no_warnings": True,
         }
