@@ -14,7 +14,7 @@ from src.phases.refine_phase import phase3_refine
 from src.phases.output_phase import phase4_output
 
 class DialogueDetector:
-    def __init__(self, url: str, target_dialogue: str, work_dir: str = "output", local_video: str = "", mode: str = "asr_only", assets_dir: str = r"C:\Users\dayan\Documents\Quest1\assets", status_callback=None) -> None:
+    def __init__(self, url: str, target_dialogue: str, work_dir: str = "output", local_video: str = "", mode: str = "asr_only", assets_dir: str = "assets", status_callback=None) -> None:
         self.status_callback = status_callback
         self.session_id = uuid.uuid4().hex
         self.url = url

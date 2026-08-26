@@ -135,7 +135,7 @@ def phase1_asr(meta: VideoMeta, target: str) -> tuple:
                 log.info("Running high-accuracy sweep (small.en)...")
                 small_model = get_whisper_model("small.en")
                 small_iter, _ = small_model.transcribe(
-                    meta.audio_path, language="en", word_timestamps=True, vad_filter=True, beam_size=2, condition_on_previous_text=False
+                    meta.audio_path, language="en", word_timestamps=True, vad_filter=False, beam_size=2, condition_on_previous_text=False
                 )
                 small_words = []
                 for seg in small_iter:
@@ -173,7 +173,7 @@ def phase1_asr(meta: VideoMeta, target: str) -> tuple:
                         subprocess.run(["ffmpeg", "-y", "-i", meta.audio_path, "-ss", str(g_start), "-t", str(duration), "-c", "copy", gap_audio], capture_output=True)
                         
                         fallback_iter, _ = fallback_model.transcribe(
-                            gap_audio, language="en", word_timestamps=True, vad_filter=True, beam_size=1, condition_on_previous_text=False
+                            gap_audio, language="en", word_timestamps=True, vad_filter=False, beam_size=1, condition_on_previous_text=False
                         )
                         
                         for seg in fallback_iter:

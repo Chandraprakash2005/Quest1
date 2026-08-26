@@ -9,100 +9,73 @@ This tool downloads a video, runs speech recognition to narrow the search window
 - `output_frame.png` — full-resolution screenshot of the matched frame
 - `manifest.json` — structured result with timestamp, frame number, extracted text, and confidence
 
-## Prerequisites
+## 1. What to Install (Setup)
 
-| Dependency       | Purpose                                         |
-| ---------------- | ----------------------------------------------- |
-| **Python 3.10+** | Runtime                                         |
-| **FFmpeg**       | Video/audio processing (must be on system PATH) |
-| **uv**           | Fast Python package manager                     |
+You need to install system dependencies (FFmpeg) and python dependencies to run this app.
 
-### Install FFmpeg
+**System Requirements:**
+- **Python 3.10+**
+**System Dependencies (FFmpeg & uv):**
 
-**Windows (winget):**
-
-```bash
+**Windows (PowerShell):**
+```powershell
 winget install --id Gyan.FFmpeg -e --source winget
+powershell -ExecutionPolicy ByPass -c "irm https://astral.sh/uv/install.ps1 | iex"
 ```
 
-**Windows (choco):**
-
-```bash
-choco install ffmpeg
-```
-
-**macOS:**
-
+**macOS (Homebrew):**
 ```bash
 brew install ffmpeg
-```
-
-**Ubuntu/Debian:**
-
-```bash
-sudo apt update && sudo apt install ffmpeg
-```
-
-Verify: `ffmpeg -version` and `ffprobe -version`
-
-### Install uv
-
-```bash
-# Windows (PowerShell)
-powershell -ExecutionPolicy ByPass -c "irm https://astral.sh/uv/install.ps1 | iex"
-
-# macOS / Linux
 curl -LsSf https://astral.sh/uv/install.sh | sh
 ```
 
-## Setup
-
+**Linux (Debian/Ubuntu):**
 ```bash
-# 1. Clone the repository
+sudo apt update && sudo apt install ffmpeg
+curl -LsSf https://astral.sh/uv/install.sh | sh
+```
+
+**Application Setup:**
+Choose your operating system below and copy-paste the entire block into your terminal to set up the project in one go:
+
+**Windows (PowerShell):**
+```powershell
 git clone https://github.com/your-username/Quest1.git
 cd Quest1
-
-# 2. Create a virtual environment with uv
 uv venv
-
-# 3. Activate the environment
-# Windows PowerShell:
 .venv\Scripts\Activate.ps1
-# macOS / Linux:
-source .venv/bin/activate
-
-# 4. Install all dependencies
 uv pip install -r requirements.txt
 ```
 
-## Usage
-
-### Default (built-in target)
-
+**macOS / Linux:**
 ```bash
-python src/find_dialogue.py
+git clone https://github.com/your-username/Quest1.git
+cd Quest1
+uv venv
+source .venv/bin/activate
+uv pip install -r requirements.txt
 ```
 
-This will search for **"My mind rebels at stagnation"** in `https://ok.ru/video/248244667877`.
+---
 
-### Custom target
+## 2. What to Run (Usage)
 
+To run the whole application, you just need to start the backend server. The Web UI is the primary way to interact with the detector.
+
+**Step 1: Start the server**
 ```bash
-python src/find_dialogue.py \
-  --url "https://ok.ru/video/248244667877" \
-  --target "My mind rebels at stagnation" \
-  --workdir ./output \
-  --verbose
+python src/server.py
 ```
+*(Leave this terminal window running)*
 
-### CLI Arguments
+**Step 2: Open the Dashboard**
+Open your web browser and go to: **http://localhost:8000**
 
-| Flag        | Default                        | Description                           |
-| ----------- | ------------------------------ | ------------------------------------- |
-| `--url`     | ok.ru sample video             | Video URL (any yt-dlp supported site) |
-| `--target`  | "My mind rebels at stagnation" | Dialogue text to find                 |
-| `--workdir` | `.`                            | Directory for downloads and outputs   |
-| `--verbose` | off                            | Enable DEBUG-level logging            |
+**Step 3: Using the App**
+1. **Source:** Choose a local video from the `assets/video` folder or paste a remote URL.
+2. **Target Phrase:** Enter the dialogue to search for.
+3. **Mode:** Select **ASR + OCR (Fine)** for the best accuracy.
+4. **Run:** Click "Run Pipeline" and watch the live progress until the frame is found!
 
 ## Output
 
@@ -138,5 +111,4 @@ manifest.json       ← Structured detection result
 3. **Phase 2 — Coarse OCR:** Samples 1 frame/second within the window and runs PaddleOCR (or EasyOCR) on each frame.
 4. **Phase 3 — Refinement:** Multi-pass binary search (0.1s → 0.01s → frame-level) to lock in the first appearance.
 5. **Phase 4 — Output:** Saves the frame as PNG and writes the JSON manifest.
-
-See [APPROACH.md](APPROACH.md) for the full engineering design document.
+   See the accompanying [Approach.pdf](Approach.pdf) for the full engineering design document.
