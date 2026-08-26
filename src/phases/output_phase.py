@@ -53,6 +53,7 @@ def phase4_output(meta: VideoMeta, best: MatchResult, session_id: str, work_dir:
         "extracted_text": best.extracted_text,
         "confidence_score": round(best.confidence, 2),
         "status": best.status,
+        "asd_status": best.asd_status,
         "image_path": str(frame_path.resolve()) if ret else ""
     }
     manifest_path.write_text(json.dumps(manifest, indent=2))

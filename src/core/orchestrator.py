@@ -46,6 +46,13 @@ class DialogueDetector:
         if self.mode == "asr_only":
             if self.asr_best is not None and self.asr_best.confidence >= 60:
                 log.info("Mode 'asr_only': ASR matched target dialogue. Short-circuiting OCR.")
+                
+                # --- NEW TalkNet ASD Stage ---
+                from src.phases.asd_phase import phase_asd
+                asd_result = phase_asd(self.meta, self.asr_best, window)
+                self.asr_best.asd_status = asd_result["status"]
+                # ---------------------------
+                
                 self.best = self.asr_best
             else:
                 log.info("Mode 'asr_only': ASR failed. Stopping pipeline as OCR is disabled.")

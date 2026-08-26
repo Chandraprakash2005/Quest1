@@ -102,11 +102,26 @@ function renderHistoryCard(resultData, sessionId, targetText, prepend = true) {
             methodText = "DUAL";
         }
         
+        let asdBadgeHtml = "";
+        if (resultData.asd_status === "ON_SCREEN" || resultData.asd_status === "OFF_SCREEN") {
+            const isOff = resultData.asd_status === "OFF_SCREEN";
+            const badgeColor = isOff ? "rgba(239, 68, 68, 0.9)" : "rgba(16, 185, 129, 0.9)";
+            const badgeText = isOff ? "OFF-SCREEN" : "ON-SCREEN";
+            const badgeIcon = isOff ? `<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 1l22 22"></path><path d="M9 9v3a3 3 0 005.12 2.12M15 9.34V4a3 3 0 00-5.94-.6"></path><path d="M17 16.95A7 7 0 015 12v-2m14 0v2a7 7 0 01-.11 1.23"></path><line x1="12" y1="19" x2="12" y2="23"></line><line x1="8" y1="23" x2="16" y2="23"></line></svg>` : `<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"></path><path d="M19 10v2a7 7 0 0 1-14 0v-2"></path><line x1="12" y1="19" x2="12" y2="23"></line><line x1="8" y1="23" x2="16" y2="23"></line></svg>`;
+            asdBadgeHtml = `
+                <div style="position: absolute; top: 12px; left: 12px; background: ${badgeColor}; color: white; padding: 6px 10px; border-radius: 6px; font-size: 0.8rem; font-weight: 700; display: flex; align-items: center; gap: 6px; box-shadow: 0 4px 12px rgba(0,0,0,0.5); z-index: 10; letter-spacing: 0.05em; border: 1px solid rgba(255,255,255,0.2);">
+                    ${badgeIcon}
+                    ${badgeText}
+                </div>
+            `;
+        }
+
         const cardHtml = `
             <div class="history-card">
                 <div class="history-image-col">
                     <div style="position: relative; display: flex; max-width: 100%; height: auto;">
-                        <img src="${imgSrc}" alt="Extracted Frame" onerror="this.src=''" style="display: block; width: 100%; height: auto;" />
+                        ${asdBadgeHtml}
+                        <img src="${imgSrc}" alt="Extracted Frame" onerror="this.src=''" style="display: block; width: 100%; height: auto; border-radius: 6px;" />
                     </div>
                 </div>
                 <div class="history-details-col">
