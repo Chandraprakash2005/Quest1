@@ -2,7 +2,7 @@ from src.core.config import log
 
 _WHISPER_MODEL = None
 
-def get_whisper_model(model_size: str = "medium.en"):
+def get_whisper_model(model_size: str = "small.en"):
     """Returns a cached Whisper model, preferring GPU."""
     global _WHISPER_MODEL
     if _WHISPER_MODEL is not None:

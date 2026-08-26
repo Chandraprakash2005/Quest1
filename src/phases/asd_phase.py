@@ -5,20 +5,23 @@ from src.core.config import log
 from src.core.models import MatchResult, SearchWindow, VideoMeta
 from src.engine.asd_engine import TalkNetASDEngine
 
-def extract_asd_media(meta: VideoMeta, window: SearchWindow, fps: int = 25):
+def extract_asd_media(meta: VideoMeta, asr_best: MatchResult, fps: int = 25):
     """
-    Extracts frames corresponding to the ASR temporal window.
-    (Audio is read directly from assets during inference, without disk extraction)
+    Extracts frames strictly around the exact ASR timestamp to prevent adjacent shots (B-roll) from bleeding into the analysis.
     """
-    log.info("Extracting frames for TalkNet from %.2fs to %.2fs", window.start, window.end)
+    # Create a tight 2-second window around the center of the dialogue
+    tight_start = max(0.0, asr_best.timestamp - 1.0)
+    tight_end = min(meta.duration, asr_best.timestamp + 1.0)
+    
+    log.info("Extracting frames for TalkNet (Tight Window) from %.2fs to %.2fs", tight_start, tight_end)
     
     # Extract video frames
     cap = cv2.VideoCapture(meta.video_path)
     frames = []
     
     if cap.isOpened():
-        start_frame = int(window.start * meta.fps)
-        end_frame = int(window.end * meta.fps)
+        start_frame = int(tight_start * meta.fps)
+        end_frame = int(tight_end * meta.fps)
         
         # MASSIVE BOTTLENECK FIX: Seek only once, then read sequentially!
         cap.set(cv2.CAP_PROP_POS_FRAMES, start_frame)
@@ -70,10 +73,13 @@ def phase_asd(meta: VideoMeta, asr_best: MatchResult, window: SearchWindow) -> d
         cache_data = {}
 
     # 2. Run Pipeline on Cache Miss
-    frames = extract_asd_media(meta, window)
+    frames = extract_asd_media(meta, asr_best)
+    
+    tight_start = max(0.0, asr_best.timestamp - 1.0)
+    tight_end = min(meta.duration, asr_best.timestamp + 1.0)
     
     engine = TalkNetASDEngine()
-    result = engine.detect_speaker(frames, meta.audio_path, window.start, window.end)
+    result = engine.detect_speaker(frames, meta.audio_path, tight_start, tight_end)
     
     # 3. Save to Cache
     cache_data[cache_key] = result

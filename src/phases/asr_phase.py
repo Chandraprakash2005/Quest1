@@ -131,14 +131,14 @@ def phase1_asr(meta: VideoMeta, target: str) -> tuple:
             log.info("ASR cache miss. Running Whisper over entire audio...")
             import re
             try:
-                model = get_whisper_model("medium.en")
+                model = get_whisper_model("small.en")
                 segments_iter, _ = model.transcribe(
                     meta.audio_path, 
                     language="en", 
                     word_timestamps=True,
                     vad_filter=False,
                     beam_size=2,
-                    condition_on_previous_text=False
+                    condition_on_previous_text=True
                 )
                 
                 all_words = []
@@ -161,7 +161,11 @@ def phase1_asr(meta: VideoMeta, target: str) -> tuple:
                 return SearchWindow(0.0, meta.duration), None
 
     words = all_words
-    target_words = target.split()
+    import re
+    
+    # Globally normalize the target string: replace punctuation with spaces to properly separate hyphenated words
+    target_normalized = re.sub(r'[^\w\s]', ' ', target).lower()
+    target_words = target_normalized.split()
     n_target_words = len(target_words)
     
     best_score = 0.0
@@ -182,8 +186,7 @@ def phase1_asr(meta: VideoMeta, target: str) -> tuple:
         log.info("Exact match found: score=%.0f at t=%.2fs text='%s'", exact_score, exact_time, best_text[:80])
     elif n_target_words >= 3:
         log.info("ASR Strategy 2: Fuzzy sliding window (target has %d words)", n_target_words)
-        target_clean = target.lower()
-        import re
+        target_clean = " ".join(target_words)
         cleaned_words = [w.get("clean", re.sub(r'[^\w]', '', w["word"]).lower()) for w in words]
         
         for i in range(len(words)):
